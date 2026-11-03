@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Mahyar Gap — Your Friends. Your Space. Your Connection.</title>
+  <meta name="description" content="Mahyar Gap is a private communication platform: real-time chat, voice rooms, video calls, screen sharing and the shared Mahyar Music bot — all in one lightweight place for your close group." />
+  <meta name="theme-color" content="#0b0b12" />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.2/css/all.min.css" />
+  <link rel="stylesheet" href="/landing/landing.css" />
+</head>
+<body>
+
+  <!-- ================= Navigation ================= -->
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="/en" aria-label="Mahyar Gap — home">
+        <span class="brand-badge">MG</span>
+        <span>Mahyar <strong>Gap</strong></span>
+      </a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="#home">Home</a>
+        <a href="#features">Features</a>
+        <a href="#about">About</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <div class="nav-actions">
+        <a class="lang-switch" href="/fa" lang="fa" hreflang="fa" title="تغییر به فارسی"><i class="fa-solid fa-globe"></i> فارسی</a>
+        <a class="btn btn-ghost btn-sm" href="/app">Login</a>
+        <a class="btn btn-primary btn-sm" href="/app">Get Started</a>
+        <button class="nav-burger" id="nav-burger" aria-label="Open menu" aria-expanded="false"><i class="fa-solid fa-bars"></i></button>
+      </div>
+    </div>
+    <nav class="mobile-menu" id="mobile-menu" aria-label="Mobile menu">
+      <a href="#home">Home</a>
+      <a href="#features">Features</a>
+      <a href="#about">About</a>
+      <a href="#faq">FAQ</a>
+      <a href="/fa">فارسی</a>
+      <a href="/app">Login</a>
+      <a href="/app"><strong>Get Started</strong></a>
+    </nav>
+  </header>
+
+  <!-- ================= Hero ================= -->
+  <section class="hero" id="home">
+    <div class="hero-glow"></div>
+    <div class="container hero-inner">
+      <div class="hero-copy">
+        <h1>Your Friends. Your Space.<br /><span class="grad">Your Connection.</span></h1>
+        <p class="sub">Chat together, join voice rooms, share your screen, and enjoy music with your friends — all in one place. Built to stay light, fast and private.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="/app"><i class="fa-solid fa-rocket"></i> Get Started</a>
+          <a class="btn btn-ghost" href="/app">Login</a>
+        </div>
+        <div class="hero-meta">
+          <span><i class="fa-solid fa-bolt"></i> Real-time messaging</span>
+          <span><i class="fa-solid fa-headphones"></i> LiveKit voice rooms</span>
+          <span><i class="fa-solid fa-music"></i> One shared music bot</span>
+          <span><i class="fa-solid fa-feather"></i> Low resource usage</span>
+        </div>
+      </div>
+
+      <!-- App preview (CSS-only mock of the real interface) -->
+      <div class="app-preview" aria-hidden="true">
+        <div class="ap-rail">
+          <span class="dot active"></span><span class="dot"></span><span class="dot"></span>
+        </div>
+        <div class="ap-side">
+          <div class="ap-title">Friends Server</div>
+          <div class="row on"><i class="fa-solid fa-hashtag"></i> general</div>
+          <div class="row"><i class="fa-solid fa-hashtag"></i> weekly-plan</div>
+          <div class="row voice-row"><i class="fa-solid fa-volume-high"></i> Voice Room 1</div>
+          <div class="voice-members">
+            <span><i class="fa-solid fa-user"></i> Mahyar</span>
+            <span><i class="fa-solid fa-user"></i> Ali</span>
+            <span class="bot"><i class="fa-solid fa-music"></i> Mahyar Music</span>
+          </div>
+          <div class="row voice-row"><i class="fa-solid fa-volume-high"></i> Gaming</div>
+        </div>
+        <div class="ap-main">
+          <div class="ap-chat-head"><i class="fa-solid fa-hashtag"></i> general</div>
+          <div class="ap-chat">
+            <div class="ap-msg">
+              <span class="ava" style="background:linear-gradient(135deg,#7C5CFF,#22D3EE)"></span>
+              <div class="bubble"><b>Mahyar <span class="time">12:04</span></b> watching the match stream tonight?</div>
+            </div>
+            <div class="ap-msg">
+              <span class="ava" style="background:linear-gradient(135deg,#F0B232,#FF8A3D)"></span>
+              <div class="bubble"><b>Ali <span class="time">12:05</span></b> definitely! queue something while we wait 😄</div>
+            </div>
+            <div class="ap-msg">
+              <span class="ava" style="background:linear-gradient(135deg,#23A55A,#0E8A45)"></span>
+              <div class="bubble"><b>Sara <span class="time">12:06</span></b> /mp play something good 🎧</div>
+            </div>
+          </div>
+          <div class="ap-musicbar">
+            <span class="cover"><i class="fa-solid fa-music"></i></span>
+            <span><span class="t">Believer</span><br /><span class="a">Mahyar Music • playing for everyone</span></span>
+            <span class="wave"><span></span><span></span><span></span><span></span><span></span></span>
+          </div>
+          <div class="ap-composer"><i class="fa-solid fa-plus"></i><span class="slash-cmd">/mp</span><span>Message #general…</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= Features ================= -->
+  <section class="section" id="features">
+    <div class="container">
+      <div class="section-head">
+        <div class="kicker">Features</div>
+        <h2>Everything a close group actually needs</h2>
+        <p>No feature bloat. Mahyar Gap focuses on the things you use every day with your friends.</p>
+      </div>
+      <div class="feature-grid">
+        <article class="feature-card">
+          <div class="feature-icon"><i class="fa-solid fa-comments"></i></div>
+          <h3>Real-Time Messaging</h3>
+          <p>Text channels and private messages with instant delivery, replies, reactions and fast in-channel search.</p>
+          <span class="chip">Socket.IO</span>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon"><i class="fa-solid fa-headphones"></i></div>
+          <h3>Voice Rooms</h3>
+          <p>Jump into a voice channel with one click. Live, clear conversation powered by LiveKit — even on mobile data.</p>
+          <span class="chip">LiveKit</span>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon"><i class="fa-solid fa-display"></i></div>
+          <h3>Video &amp; Screen Sharing</h3>
+          <p>Turn on your camera, share your screen with the room, and watch or review things together.</p>
+          <span class="chip">WebRTC</span>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon"><i class="fa-solid fa-user-group"></i></div>
+          <h3>Private Communities</h3>
+          <p>Create a server, organize channels, invite friends with links and manage roles and access.</p>
+          <span class="chip">Invites &amp; roles</span>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon"><i class="fa-solid fa-shield-halved"></i></div>
+          <h3>Secure Accounts</h3>
+          <p>Hashed passwords, secure JWT sessions and server-side authorization — your space stays yours.</p>
+          <span class="chip">JWT + bcrypt</span>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon"><i class="fa-solid fa-gauge-high"></i></div>
+          <h3>Light by Design</h3>
+          <p>Runs smoothly on modest server resources. No extra services, no heavy animation theatrics.</p>
+          <span class="chip">Railway-friendly</span>
+        </article>
+      </div>
+
+      <!-- Music spotlight -->
+      <div class="music-spot" id="about">
+        <div>
+          <h3><span class="bot-dot"><i class="fa-solid fa-music"></i></span> Mahyar Music — the shared music bot</h3>
+          <p>Like a real Discord music bot, Mahyar Music joins your voice room as its own participant and plays one shared audio source to everyone. Every listener keeps an independent personal volume.</p>
+          <ul>
+            <li><i class="fa-solid fa-check"></i> <b>/mp play</b> with search results and an interactive picker</li>
+            <li><i class="fa-solid fa-check"></i> Shared queue with pause, resume, skip and stop for everyone</li>
+            <li><i class="fa-solid fa-check"></i> Personal 0–200% volume and personal mute — only for you</li>
+            <li><i class="fa-solid fa-check"></i> A real bot identity in the voice participant list</li>
+          </ul>
+        </div>
+        <div class="code-hint" aria-hidden="true">
+          <div>/mp play <span class="k">believer</span></div>
+          <div>/mp play <span class="k">https://…/track-link</span></div>
+          <div>/mp queue</div>
+          <div>/mp skip</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= FAQ ================= -->
+  <section class="section" id="faq">
+    <div class="container">
+      <div class="section-head">
+        <div class="kicker">FAQ</div>
+        <h2>Questions people usually ask</h2>
+      </div>
+      <div class="faq-list">
+        <details class="faq-item">
+          <summary>Who is Mahyar Gap for? <i class="fa-solid fa-plus"></i></summary>
+          <div class="faq-body">Private small groups — a circle of friends who want their own space: light, fast and ad-free.</div>
+        </details>
+        <details class="faq-item">
+          <summary>How does the music bot work? <i class="fa-solid fa-plus"></i></summary>
+          <div class="faq-body">Mahyar Music joins the LiveKit voice room as a real participant and publishes one shared audio track. Each user controls their own local volume and can mute the music for themselves only.</div>
+        </details>
+        <details class="faq-item">
+          <summary>Which music sources are supported? <i class="fa-solid fa-plus"></i></summary>
+          <div class="faq-body">Only sources that officially and explicitly permit shared playback. If a source (like Spotify) does not allow group retransmission, the app says so honestly instead of bypassing it.</div>
+        </details>
+        <details class="faq-item">
+          <summary>How do I create an account? <i class="fa-solid fa-plus"></i></summary>
+          <div class="faq-body">Click "Get Started", pick a username and email, and you are in. To join your friends' server, open their invite link.</div>
+        </details>
+        <details class="faq-item">
+          <summary>Does it work on mobile? <i class="fa-solid fa-plus"></i></summary>
+          <div class="faq-body">Yes — the public pages and the app itself are fully responsive for phones, tablets and desktops.</div>
+        </details>
+        <details class="faq-item">
+          <summary>How do I contact the team? <i class="fa-solid fa-plus"></i></summary>
+          <div class="faq-body">Mahyar Gap is a private product; for anything administrative, reach out to your server's owner or admin.</div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= CTA ================= -->
+  <section class="section">
+    <div class="container">
+      <div class="cta-band">
+        <h2>Build your own space</h2>
+        <p>It takes a couple of minutes: create an account, invite your friends and play your first shared song.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="/app">Get Started — free</a>
+          <a class="btn btn-ghost" href="/app">Log in</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= Footer ================= -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div>
+          <a class="brand" href="/en"><span class="brand-badge">MG</span><span>Mahyar <strong>Gap</strong></span></a>
+          <p class="about">A private communication platform for small groups: chat, voice, video and shared music.</p>
+        </div>
+        <div>
+          <h4>Product</h4>
+          <div class="links">
+            <a href="#features">Features</a>
+            <a href="/app">Login</a>
+            <a href="/app">Create Account</a>
+          </div>
+        </div>
+        <div>
+          <h4>Resources</h4>
+          <div class="links">
+            <a href="#faq">FAQ</a>
+            <a href="/en/privacy.html">Privacy Policy</a>
+            <a href="/en/terms.html">Terms of Service</a>
+          </div>
+        </div>
+        <div>
+          <h4>Language</h4>
+          <div class="links">
+            <a href="/fa" lang="fa">فارسی</a>
+            <a href="/en" lang="en">English</a>
+          </div>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>© 2026 Mahyar Gap — built for friends.</span>
+        <span>Your Friends. Your Space. Your Music.</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/landing/landing.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>مهیار گپ — دوستانت. فضای خودت. لحظه‌های مشترک.</title>
+  <meta name="description" content="مهیار گپ یک پلتفرم ارتباطی خصوصی است: چت realtime، اتاق‌های صوتی، تماس تصویری، اشتراک صفحه و ربات موسیقی مشترک Mahyar Music — همه در یک‌جا و برای جمع کوچک شما." />
+  <meta name="theme-color" content="#0b0b12" />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.2/css/all.min.css" />
+  <link rel="stylesheet" href="/landing/landing.css" />
+</head>
+<body>
+
+  <!-- ================= Navigation ================= -->
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="/fa" aria-label="مهیار گپ — خانه">
+        <span class="brand-badge">MG</span>
+        <span>مهیار <strong>گپ</strong></span>
+      </a>
+      <nav class="nav-links" aria-label="ناوبری اصلی">
+        <a href="#home">خانه</a>
+        <a href="#features">امکانات</a>
+        <a href="#about">درباره</a>
+        <a href="#faq">سوالات</a>
+      </nav>
+      <div class="nav-actions">
+        <a class="lang-switch" href="/en" lang="en" hreflang="en" title="Switch to English"><i class="fa-solid fa-globe"></i> English</a>
+        <a class="btn btn-ghost btn-sm" href="/app">ورود</a>
+        <a class="btn btn-primary btn-sm" href="/app">شروع کنید</a>
+        <button class="nav-burger" id="nav-burger" aria-label="باز کردن منو" aria-expanded="false"><i class="fa-solid fa-bars"></i></button>
+      </div>
+    </div>
+    <nav class="mobile-menu" id="mobile-menu" aria-label="منوی موبایل">
+      <a href="#home">خانه</a>
+      <a href="#features">امکانات</a>
+      <a href="#about">درباره</a>
+      <a href="#faq">سوالات</a>
+      <a href="/en">English</a>
+      <a href="/app">ورود</a>
+      <a href="/app"><strong>شروع کنید</strong></a>
+    </nav>
+  </header>
+
+  <!-- ================= Hero ================= -->
+  <section class="hero" id="home">
+    <div class="hero-glow"></div>
+    <div class="container hero-inner">
+      <div class="hero-copy">
+        <h1>دوستانت. فضای خودت.<br /><span class="grad">لحظه‌های مشترک.</span></h1>
+        <p class="sub">با هم چت کنید، وارد اتاق‌های صوتی شوید، صفحه‌تان را به اشتراک بگذارید و با ربات موسیقی «ماهیار میوزیک» برای همدیگر آهنگ پخش کنید — همه‌چیز در یک‌جا، سبک و سریع.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="/app"><i class="fa-solid fa-rocket"></i> شروع کنید</a>
+          <a class="btn btn-ghost" href="/app">ورود</a>
+        </div>
+        <div class="hero-meta">
+          <span><i class="fa-solid fa-bolt"></i> پیام در لحظه</span>
+          <span><i class="fa-solid fa-headphones"></i> اتاق صوتی با LiveKit</span>
+          <span><i class="fa-solid fa-music"></i> موسیقی مشترک با یک ربات واقعی</span>
+          <span><i class="fa-solid fa-feather"></i> سبک و کم‌مصرف</span>
+        </div>
+      </div>
+
+      <!-- App preview (CSS-only mock of the real interface) -->
+      <div class="app-preview" aria-hidden="true">
+        <div class="ap-rail">
+          <span class="dot active"></span><span class="dot"></span><span class="dot"></span>
+        </div>
+        <div class="ap-side">
+          <div class="ap-title">سرور دوستان</div>
+          <div class="row on"><i class="fa-solid fa-hashtag"></i> گپ عمومی</div>
+          <div class="row"><i class="fa-solid fa-hashtag"></i> برنامه هفته</div>
+          <div class="row voice-row"><i class="fa-solid fa-volume-high"></i> اتاق صوتی ۱</div>
+          <div class="voice-members">
+            <span><i class="fa-solid fa-user"></i> مهیار</span>
+            <span><i class="fa-solid fa-user"></i> علی</span>
+            <span class="bot"><i class="fa-solid fa-music"></i> Mahyar Music</span>
+          </div>
+          <div class="row voice-row"><i class="fa-solid fa-volume-high"></i> اتاق بازی</div>
+        </div>
+        <div class="ap-main">
+          <div class="ap-chat-head"><i class="fa-solid fa-hashtag"></i> گپ عمومی</div>
+          <div class="ap-chat">
+            <div class="ap-msg">
+              <span class="ava" style="background:linear-gradient(135deg,#7C5CFF,#22D3EE)"></span>
+              <div class="bubble"><b>مهیار <span class="time">۱۲:۰۴</span></b> امشب استریم مسابقه رو می‌بینیم؟</div>
+            </div>
+            <div class="ap-msg">
+              <span class="ava" style="background:linear-gradient(135deg,#F0B232,#FF8A3D)"></span>
+              <div class="bubble"><b>علی <span class="time">۱۲:۰۵</span></b> حتماً! یه آهنگ هم بذار برای انتظار 😄</div>
+            </div>
+            <div class="ap-msg">
+              <span class="ava" style="background:linear-gradient(135deg,#23A55A,#0E8A45)"></span>
+              <div class="bubble"><b>سارا <span class="time">۱۲:۰۶</span></b> /mp play آهنگ خوب بذار 🎧</div>
+            </div>
+          </div>
+          <div class="ap-musicbar">
+            <span class="cover"><i class="fa-solid fa-music"></i></span>
+            <span><span class="t">Believer</span><br /><span class="a">Mahyar Music • پخش برای همه</span></span>
+            <span class="wave"><span></span><span></span><span></span><span></span><span></span></span>
+          </div>
+          <div class="ap-composer"><i class="fa-solid fa-plus"></i><span class="slash-cmd">/mp</span><span>پیام به گپ عمومی…</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= Features ================= -->
+  <section class="section" id="features">
+    <div class="container">
+      <div class="section-head">
+        <div class="kicker">امکانات</div>
+        <h2>هر چیزی که یک جمع دوستانه لازم دارد</h2>
+        <p>بدون پیچیدگی اضافه. مهیار گپ روی همان چیزهایی تمرکز کرده که واقعاً استفاده می‌کنید.</p>
+      </div>
+      <div class="feature-grid">
+        <article class="feature-card">
+          <div class="feature-icon"><i class="fa-solid fa-comments"></i></div>
+          <h3>پیام‌رسانی Real-time</h3>
+          <p>کانال‌های متنی و پیام خصوصی با تحویل لحظه‌ای، پاسخ به پیام، ری‌اکشن و جست‌وجوی سریع بین پیام‌ها.</p>
+          <span class="chip">Socket.IO</span>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon"><i class="fa-solid fa-headphones"></i></div>
+          <h3>اتاق‌های صوتی</h3>
+          <p>با یک کلیک وارد اتاق صوتی شوید؛ کیفیت گفت‌وگوی زنده با LiveKit، حتی روی اینترنت معمولی موبایل.</p>
+          <span class="chip">LiveKit</span>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon"><i class="fa-solid fa-display"></i></div>
+          <h3>تماس تصویری و اشتراک صفحه</h3>
+          <p>دوربین روشن کنید، صفحه‌تان را برای بقیه به اشتراک بگذارید و با هم فیلم یا پروژه ببینید.</p>
+          <span class="chip">WebRTC</span>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon"><i class="fa-solid fa-user-group"></i></div>
+          <h3>کامیونیتی خصوصی</h3>
+          <p>سرور بسازید، کانال‌ها را سازمان‌دهی کنید، با لینک دعوت دوستان را بیاورید و دسترسی‌ها را مدیریت کنید.</p>
+          <span class="chip">دعوت و نقش‌ها</span>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon"><i class="fa-solid fa-shield-halved"></i></div>
+          <h3>حساب امن</h3>
+          <p>رمزهای هش‌شده، نشست‌های امن JWT و کنترل دسترسی سمت سرور — اطلاعات شما فقط برای جمع خودتان است.</p>
+          <span class="chip">JWT + bcrypt</span>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon"><i class="fa-solid fa-gauge-high"></i></div>
+          <h3>سبک و کم‌مصرف</h3>
+          <p>طراحی‌شده برای اجرای روان روی منابع محدود؛ بدون سرویس‌های اضافه، بدون تئاتر انیمیشنی.</p>
+          <span class="chip">بهینه برای Railway</span>
+        </article>
+      </div>
+
+      <!-- Music spotlight -->
+      <div class="music-spot" id="about">
+        <div>
+          <h3><span class="bot-dot"><i class="fa-solid fa-music"></i></span> ماهیار میوزیک — ربات موسیقی مشترک</h3>
+          <p>مثل یک ربات موسیقی واقعی، «ماهیار میوزیک» خودش به اتاق صوتی می‌پیوندد و یک آهنگ را برای همه اعضا پخش می‌کند. هر نفر ولوم مخصوص خودش را دارد؛ کم یا زیاد کردن صدای شما، صدای بقیه را تغییر نمی‌دهد.</p>
+          <ul>
+            <li><i class="fa-solid fa-check"></i> دستور <b>/mp play</b> با جست‌وجو و انتخاب نتایج</li>
+            <li><i class="fa-solid fa-check"></i> صف مشترک، pause/resume، skip و stop برای همه</li>
+            <li><i class="fa-solid fa-check"></i> ولوم اختصاصی ۰ تا ۲۰۰٪ و بی‌صدا کردن فقط برای خودتان</li>
+            <li><i class="fa-solid fa-check"></i> شناسه مخصوص ربات در لیست اعضای اتاق صوتی</li>
+          </ul>
+        </div>
+        <div class="code-hint" aria-hidden="true">
+          <div>/mp play <span class="k">believer</span></div>
+          <div>/mp play <span class="k">https://…/track-link</span></div>
+          <div>/mp queue</div>
+          <div>/mp skip</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= FAQ ================= -->
+  <section class="section" id="faq">
+    <div class="container">
+      <div class="section-head">
+        <div class="kicker">سوالات متداول</div>
+        <h2>چیزهایی که احتمالاً می‌پرسید</h2>
+      </div>
+      <div class="faq-list">
+        <details class="faq-item">
+          <summary>مهیار گپ برای چه کسانی ساخته شده؟ <i class="fa-solid fa-plus"></i></summary>
+          <div class="faq-body">برای جمع‌های کوچک خصوصی — گروهی از دوستان که می‌خواهند فضای مخصوص خودشان را داشته باشند؛ سبک، سریع و بدون تبلیغ.</div>
+        </details>
+        <details class="faq-item">
+          <summary>ربات موسیقی چطور کار می‌کند؟ <i class="fa-solid fa-plus"></i></summary>
+          <div class="faq-body">«ماهیار میوزیک» به‌عنوان یک شرکت‌کننده واقعی به اتاق صوتی LiveKit می‌پیوندد و مسیر صوتی یکسان را برای همه اعضا پخش می‌کند. هر کاربر به‌صورت محلی ولوم خودش را تنظیم یا موسیقی را برای خودش بی‌صدا می‌کند.</div>
+        </details>
+        <details class="faq-item">
+          <summary>از چه منابع موسیقی پشتیبانی می‌شود؟ <i class="fa-solid fa-plus"></i></summary>
+          <div class="faq-body">فقط منابعی که به‌طور رسمی و مجاز اجازه پخش اشتراکی بدهند. اگر منبعی (مثل اسپاتیفای) اجازه پخش گروهی ندهد، صادقانه اعلام می‌شود و محتوای آن پخش نمی‌شود.</div>
+        </details>
+        <details class="faq-item">
+          <summary>حساب کاربری چگونه ساخته می‌شود؟ <i class="fa-solid fa-plus"></i></summary>
+          <div class="faq-body">روی «شروع کنید» بزنید، یک نام کاربری و ایمیل انتخاب کنید و وارد شوید. برای پیوستن به سرور دوستانتان، لینک دعوت را باز کنید.</div>
+        </details>
+        <details class="faq-item">
+          <summary>روی موبایل هم کار می‌کند؟ <i class="fa-solid fa-plus"></i></summary>
+          <div class="faq-body">بله؛ صفحات عمومی و خود برنامه برای موبایل، تبلت و دسکتاپ به‌طور کامل واکنش‌گرا طراحی شده‌اند.</div>
+        </details>
+        <details class="faq-item">
+          <summary>چطور با تیم تماس بگیرم؟ <i class="fa-solid fa-plus"></i></summary>
+          <div class="faq-body">مهیار گپ یک محصول خصوصی است؛ برای موضوعات مدیریتی با مدیر سرور خود در تماس باشید.</div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= CTA ================= -->
+  <section class="section">
+    <div class="container">
+      <div class="cta-band">
+        <h2>فضای خودتان را بسازید</h2>
+        <p>چند دقیقه بیشتر طول نمی‌کشد: حساب بسازید، دوستان را دعوت کنید و اولین آهنگ مشترک را پخش کنید.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="/app">شروع کنید — رایگان</a>
+          <a class="btn btn-ghost" href="/app">ورود به حساب</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= Footer ================= -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div>
+          <a class="brand" href="/fa"><span class="brand-badge">MG</span><span>مهیار <strong>گپ</strong></span></a>
+          <p class="about">پلتفرم ارتباطی خصوصی برای جمع‌های کوچک: چت، صدا، تصویر و موسیقی مشترک.</p>
+        </div>
+        <div>
+          <h4>محصول</h4>
+          <div class="links">
+            <a href="#features">امکانات</a>
+            <a href="/app">ورود</a>
+            <a href="/app">ساخت حساب</a>
+          </div>
+        </div>
+        <div>
+          <h4>منابع</h4>
+          <div class="links">
+            <a href="#faq">سوالات متداول</a>
+            <a href="/fa/privacy.html">سیاست حفظ حریم خصوصی</a>
+            <a href="/fa/terms.html">شرایط استفاده</a>
+          </div>
+        </div>
+        <div>
+          <h4>زبان</h4>
+          <div class="links">
+            <a href="/fa" lang="fa">فارسی</a>
+            <a href="/en" lang="en">English</a>
+          </div>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>© ۱۴۰۵ مهیار گپ — ساخته‌شده برای دوستان.</span>
+        <span lang="en" dir="ltr">Your Friends. Your Space. Your Music.</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/landing/landing.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,344 @@
+// ============================================================================
+// PulseCord — Production PostgreSQL Schema (Prisma ORM)
+// Optimized with composite indexes, cascading relations, and RBAC bitfields
+// Run: `npx prisma migrate deploy` (configured automatically in railway.json)
+// ============================================================================
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserStatus {
+  ONLINE
+  IDLE
+  DND
+  OFFLINE
+}
+
+enum ChannelType {
+  TEXT
+  VOICE
+  ANNOUNCEMENT
+  FORUM
+  STAGE
+}
+
+enum FriendStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}
+
+model User {
+  id               String         @id @default(cuid())
+  username         String         @unique
+  displayName      String
+  discriminator    String         @default("0001")
+  email            String         @unique
+  passwordHash     String
+  avatarUrl        String?
+  avatarColor      String         @default("#5865F2")
+  bannerColor      String         @default("#1e1f22")
+  status           UserStatus     @default(ONLINE)
+  customStatus     String?
+  bio              String?
+  emailVerified    Boolean        @default(false)
+  twoFactorEnabled Boolean        @default(false)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  sessions         Session[]
+  ownedServers     Server[]       @relation("ServerOwner")
+  memberships      ServerMember[]
+  messages         Message[]
+  directMessages   DirectMessage[]
+  reactions        Reaction[]
+  voiceSessions    VoiceSession[]
+  notifications    Notification[]
+  auditLogs        AuditLog[]     @relation("AuditActor")
+
+  @@index([username])
+  @@index([email])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  refreshToken String   @unique
+  userAgent    String?
+  ipAddress    String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Server {
+  id                String         @id @default(cuid())
+  name              String
+  description       String?
+  iconUrl           String?
+  iconText          String         @default("PC")
+  iconColor         String         @default("#5865F2")
+  ownerId           String
+  inviteCode        String         @unique
+  region            String         @default("us-east-railway")
+  verificationLevel String         @default("MEDIUM")
+  musicEnabled      Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  owner             User           @relation("ServerOwner", fields: [ownerId], references: [id])
+  members           ServerMember[]
+  channels          Channel[]
+  roles             Role[]
+  invitations       Invitation[]
+  bans              Ban[]
+  auditLogs         AuditLog[]
+
+  @@index([ownerId])
+  @@index([inviteCode])
+}
+
+model Role {
+  id          String       @id @default(cuid())
+  serverId    String
+  name        String
+  color       String       @default("#99AAB5")
+  position    Int          @default(1)
+  hoist       Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+
+  server      Server       @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  permissions Permission[]
+  members     ServerMember[]
+
+  @@index([serverId, position(sort: Desc)])
+}
+
+model Permission {
+  id     String @id @default(cuid())
+  roleId String
+  node   String // e.g., ADMINISTRATOR, MANAGE_SERVER, MANAGE_ROLES, MANAGE_CHANNELS, KICK_MEMBERS, BAN_MEMBERS, SEND_MESSAGES, CONNECT_VOICE, STREAM_VIDEO
+
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, node])
+}
+
+model ServerMember {
+  id        String   @id @default(cuid())
+  serverId  String
+  userId    String
+  nickname  String?
+  joinedAt  DateTime @default(now())
+
+  server    Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roles     Role[]
+
+  @@unique([serverId, userId])
+  @@index([userId])
+}
+
+model Channel {
+  id        String         @id @default(cuid())
+  serverId  String
+  name      String
+  category  String         @default("TEXT CHANNELS")
+  type      ChannelType    @default(TEXT)
+  topic     String?
+  position  Int            @default(0)
+  slowmode  Int            @default(0)
+  isPrivate Boolean        @default(false)
+  createdAt DateTime       @default(now())
+
+  server        Server          @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  messages      Message[]
+  voiceSessions VoiceSession[]
+  accesses      ChannelAccess[]
+
+  @@index([serverId, position])
+}
+
+/// Explicit per-user grants for private channels. Owners and MANAGE_CHANNELS
+/// holders always retain access; everyone else needs a row here.
+model ChannelAccess {
+  id        String   @id @default(cuid())
+  channelId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id        String       @id @default(cuid())
+  channelId String
+  userId    String
+  content   String
+  replyToId String?
+  attachmentsJson String @default("[]")
+  reactionsJson   String @default("{}")
+  pinned    Boolean      @default(false)
+  edited    Boolean      @default(false)
+  threadName String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  channel     Channel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  author      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attachments Attachment[]
+  reactions   Reaction[]
+
+  @@index([channelId, createdAt(sort: Desc)])
+  @@index([userId])
+}
+
+model Attachment {
+  id            String   @id @default(cuid())
+  messageId     String
+  fileReference String
+  fileName      String
+  contentType   String
+  fileSize      Int
+  createdAt     DateTime @default(now())
+
+  message       Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+}
+
+model Reaction {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+}
+
+model Friend {
+  id        String       @id @default(cuid())
+  userId    String
+  friendId  String
+  status    FriendStatus @default(ACCEPTED)
+  createdAt DateTime     @default(now())
+
+  @@unique([userId, friendId])
+  @@index([userId, status])
+}
+
+model FriendRequest {
+  id         String   @id @default(cuid())
+  senderId   String
+  receiverId String
+  status     String   @default("PENDING")
+  createdAt  DateTime @default(now())
+
+  @@unique([senderId, receiverId])
+}
+
+model DirectMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  participantIds String[] @default([])
+  senderId       String
+  content        String
+  replyToId      String?
+  attachmentsJson String  @default("[]")
+  reactionsJson   String  @default("{}")
+  isGroup        Boolean  @default(false)
+  groupName      String?
+  pinned         Boolean  @default(false)
+  edited         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  sender         User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt(sort: Desc)])
+}
+
+model VoiceSession {
+  id            String   @id @default(cuid())
+  channelId     String
+  userId        String
+  muted         Boolean  @default(false)
+  deafened      Boolean  @default(false)
+  videoEnabled  Boolean  @default(false)
+  screenSharing Boolean  @default(false)
+  joinedAt      DateTime @default(now())
+
+  channel       Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, userId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  body      String
+  type      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read, createdAt(sort: Desc)])
+}
+
+model Invitation {
+  id        String    @id @default(cuid())
+  serverId  String
+  code      String    @unique
+  uses      Int       @default(0)
+  maxUses   Int?
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+
+  server    Server    @relation(fields: [serverId], references: [id], onDelete: Cascade)
+}
+
+model Ban {
+  id        String   @id @default(cuid())
+  serverId  String
+  userId    String
+  reason    String?
+  createdAt DateTime @default(now())
+
+  server    Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@unique([serverId, userId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  serverId   String
+  actorId    String
+  actionType String
+  targetName String?
+  details    String?
+  createdAt  DateTime @default(now())
+
+  server     Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  actor      User     @relation("AuditActor", fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([serverId, createdAt(sort: Desc)])
+}
