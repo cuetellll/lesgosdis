@@ -3,18 +3,19 @@
  *
  * One MusicRoom per voice channel, created on demand, kept entirely in memory.
  * The engine owns: queue, playback state, command authorization, bot lifecycle
- * and state broadcasting over Socket.IO. Nothing about playback touches the DB.
+ * and state broadcasting over Socket.IO. Nothing about playback position touches
+ * the DB (the library records only per-track play counts).
  *
  * Resource rules:
  *  - one bot worker per room, reused across tracks;
  *  - workers start on demand and are torn down when the room goes empty or idle;
- *  - a single sweeper timer (10 s) handles idle/empty cleanup for all rooms.
+ *  - a single sweeper timer (10 s) handles idle/empty cleanup for all rooms;
+ *  - stream URLs are short-lived presigned GETs resolved at play time.
  */
 import type { Server as SocketIOServer } from 'socket.io';
 import { RoomServiceClient } from 'livekit-server-sdk';
 import { MusicBotWorker } from './bot';
-import { providerForUrl, providers, searchAll } from './providers';
-import { MusicTrack, NowPlaying, ProviderError, PublicMusicState, QueueEntry } from './types';
+import { MusicTrack, MusicLibraryResolver, NowPlaying, PublicMusicState, QueueEntry } from './types';
 
 const MAX_QUEUE_SIZE = Number(process.env.MUSIC_MAX_QUEUE || 50);
 const BOT_IDLE_DISCONNECT_MS = 120_000;   // idle (no playback) grace before the bot leaves
@@ -47,6 +48,8 @@ export interface MusicDeps {
   apiSecret: string;
   /** Returns true when music is allowed in this server (musicEnabled toggle). */
   isMusicEnabled(serverId: string): Promise<boolean>;
+  /** The shared library is the only track source. */
+  library: MusicLibraryResolver;
 }
 
 export class MusicEngine {
@@ -65,8 +68,8 @@ export class MusicEngine {
     } catch { this.roomService = null; }
   }
 
-  get providerOverview() {
-    return providers.map((p) => ({ name: p.name, ...p.status() }));
+  get library(): MusicLibraryResolver {
+    return this.deps.library;
   }
 
   private room(channelId: string, serverId: string): MusicRoom {
@@ -94,8 +97,7 @@ export class MusicEngine {
             id: room.nowPlaying.track.id,
             title: room.nowPlaying.track.title,
             artist: room.nowPlaying.track.artist,
-            provider: room.nowPlaying.track.provider,
-            page_url: room.nowPlaying.track.pageUrl || null,
+            origin: room.nowPlaying.track.origin,
             artwork_url: room.nowPlaying.track.artworkUrl || null,
             duration: room.nowPlaying.track.duration,
             requester_id: room.nowPlaying.requesterId,
@@ -116,7 +118,7 @@ export class MusicEngine {
         id: entry.track.id,
         title: entry.track.title,
         artist: entry.track.artist,
-        provider: entry.track.provider,
+        origin: entry.track.origin,
         artwork_url: entry.track.artworkUrl || null,
         duration: entry.track.duration,
         requester_id: entry.requesterId
@@ -248,6 +250,11 @@ export class MusicEngine {
 
   // -------------------------------------------------------------- playback
 
+  private async resolveStreamUrl(track: MusicTrack): Promise<string | null> {
+    if (track.streamUrl) return track.streamUrl;
+    return this.deps.library.streamUrl(track);
+  }
+
   private async advance(room: MusicRoom, requesterId: string | undefined) {
     const next = room.queue.shift();
     if (!next) {
@@ -261,18 +268,21 @@ export class MusicEngine {
   }
 
   private async startTrack(room: MusicRoom, track: MusicTrack, requesterId: string, offsetSeconds = 0) {
-    if (!track.streamable || !track.streamUrl) {
+    if (!track.streamable) {
       room.lastError = track.unavailableReason || 'That track cannot be streamed.';
       this.emit(room);
       void this.advance(room, requesterId);
       return;
     }
     try {
+      const streamUrl = await this.resolveStreamUrl(track);
+      if (!streamUrl) throw new Error('Could not resolve a stream for that track from storage.');
       const bot = await this.ensureBot(room);
-      await bot.play(track.streamUrl, offsetSeconds);
+      await bot.play(streamUrl, offsetSeconds);
       room.nowPlaying = { track, requesterId, startedAt: Date.now(), offsetSeconds };
       room.paused = false;
       room.lastError = null;
+      this.deps.library.recordPlay(track.trackId);
       console.log(`[MahyarMusic] ${Date.now()} now playing "${track.title}" in ${room.channelId}`);
       this.emit(room);
     } catch (error) {
@@ -306,96 +316,97 @@ export class MusicEngine {
     return true;
   }
 
-  /** `/mp play <query|url>` — resolve input, enqueue, start playback if idle. */
+  private async enqueue(room: MusicRoom, tracks: MusicTrack[], requesterId: string): Promise<{ ok: boolean; message: string }> {
+    const usable = tracks.filter((t) => t.streamable);
+    if (!usable.length) {
+      return { ok: false, message: tracks[0]?.unavailableReason || 'None of those tracks can be played.' };
+    }
+    const skipped = tracks.length - usable.length;
+    if (room.queue.length + usable.length > MAX_QUEUE_SIZE) {
+      return { ok: false, message: `The queue is full (max ${MAX_QUEUE_SIZE} tracks).` };
+    }
+    for (const track of usable) room.queue.push({ track, requesterId, addedAt: Date.now() });
+    if (!room.nowPlaying) await this.advance(room, requesterId);
+    this.emit(room);
+    const note = skipped > 0 ? ` ${skipped} unavailable track(s) were skipped.` : '';
+    return {
+      ok: true,
+      message: usable.length > 1 ? `Added ${usable.length} tracks to the queue.${note}` : `Added "${usable[0].title}" to the queue.${note}`
+    };
+  }
+
+  /** `/mp play <query>` — search the shared library, enqueue, start playback if idle. */
   async play(params: { channelId: string; serverId: string; userId: string; query: string; trackRef?: string }): Promise<{ ok: boolean; message: string; state: PublicMusicState }> {
     const room = this.room(params.channelId, params.serverId);
     if (!this.duplicateGuard(room, params.userId)) {
       return { ok: false, message: 'A play command is already being processed — give it a second.', state: this.publicState(room) };
     }
 
-    let resolved: { tracks: MusicTrack[]; note?: string } | null = null;
+    const trimmed = params.query.trim();
+    let picked: MusicTrack[] = [];
     let pickList: MusicTrack[] | null = null;
 
-    const trimmed = params.query.trim();
-    const isUrl = /^https?:\/\//i.test(trimmed);
-    if (isUrl) {
-      let url: URL;
-      try { url = new URL(trimmed); }
-      catch { return { ok: false, message: 'That link could not be parsed.', state: this.publicState(room) }; }
-      const provider = providerForUrl(url);
-      if (!provider) {
-        return { ok: false, message: 'That link is not from a supported music provider.', state: this.publicState(room) };
-      }
-      resolved = await provider.resolveUrl(url, params.userId);
+    if (/^https?:\/\//i.test(trimmed)) {
+      return {
+        ok: false,
+        message: 'External music links are not played in this version. Upload the file to your server library and run /mp play again.',
+        state: this.publicState(room)
+      };
     } else if (params.trackRef) {
-      // User picked a search result — resolve the ref from their search session.
+      // User picked a search result or library row — resolve the ref from their session,
+      // falling back to a direct library lookup by id.
       const session = room.searchSessions.get(params.userId);
-      const track = session?.tracks.find((t) => t.id === params.trackRef);
-      if (!track) {
-        return { ok: false, message: 'That search result has expired. Run the search again.', state: this.publicState(room) };
+      const track = session?.tracks.find((t) => t.trackId === params.trackRef || t.id === params.trackRef);
+      if (track) {
+        session!.tracks = session!.tracks.filter((t) => t !== track);
+        picked = [track];
+      } else {
+        const fresh = await this.deps.library.getPlayableTrack(params.serverId, String(params.trackRef));
+        if (!fresh) {
+          return { ok: false, message: 'That track is not in this server\'s library.', state: this.publicState(room) };
+        }
+        picked = [fresh];
       }
-      resolved = { tracks: [track] };
-      session!.tracks = session!.tracks.filter((t) => t.id !== params.trackRef);
+    } else if (!trimmed) {
+      return { ok: false, message: 'Tell Mahyar Music what to play — a track from your server library.', state: this.publicState(room) };
     } else {
-      // Free-text search: one unambiguous hit queues directly; several hits open the
-      // interactive picker; zero playable hits report the provider's honest reason.
-      const results = await searchAll(trimmed, 5);
-      if (!results.length) {
-        return { ok: false, message: 'No playable results found. Check the provider configuration or paste a supported link.', state: this.publicState(room) };
-      }
-      const merged = results.flatMap((r) => r.tracks);
-      const playable = merged.filter((t) => t.streamable);
-      if (playable.length === 0) {
-        room.lastError = merged[0]?.unavailableReason || 'No authorized playback source for that search.';
-        return { ok: false, message: room.lastError, state: this.publicState(room) };
+      // Library search: one unambiguous hit queues directly; several hits open the
+      // interactive picker; zero hits say so honestly.
+      const results = await this.deps.library.searchTracks(params.serverId, trimmed, 5);
+      const playable = results.filter((t) => t.streamable);
+      if (!playable.length) {
+        return {
+          ok: false,
+          message: results.length
+            ? 'Found matching track(s) but none are playable right now.'
+            : `No track matching "${trimmed.slice(0, 60)}" in the library. Upload it from the Music Library panel first.`,
+          state: this.publicState(room)
+        };
       }
       if (playable.length === 1) {
-        resolved = { tracks: [playable[0]] };
+        picked = [playable[0]];
       } else {
         room.searchSessions.set(params.userId, { tracks: playable, expiresAt: Date.now() + 5 * 60_000 });
         pickList = playable;
-        resolved = { tracks: [] };
       }
     }
 
     if (pickList) {
-      return {
-        ok: true,
-        message: 'PICK_RESULT',
-        state: this.publicState(room)
-      };
+      return { ok: true, message: 'PICK_RESULT', state: this.publicState(room) };
     }
 
-    const tracks = resolved.tracks.filter((t) => t.streamable);
-    if (!tracks.length) {
-      return { ok: false, message: resolved.tracks[0]?.unavailableReason || 'That track cannot be streamed.', state: this.publicState(room) };
-    }
-    const skipped = resolved.tracks.length - tracks.length;
-    if (room.queue.length + tracks.length > MAX_QUEUE_SIZE) {
-      return { ok: false, message: `The queue is full (max ${MAX_QUEUE_SIZE} tracks).`, state: this.publicState(room) };
-    }
-
-    for (const track of tracks) room.queue.push({ track, requesterId: params.userId, addedAt: Date.now() });
-    if (!room.nowPlaying) await this.advance(room, params.userId);
-    this.emit(room);
-    const note = resolved.note ? ` ${resolved.note}` : '';
-    const message = skipped > 0
-      ? `Added ${tracks.length} track(s); ${skipped} were unavailable and were skipped.${note}`
-      : tracks.length > 1
-        ? `Added ${tracks.length} tracks to the queue.${note}`
-        : `Added "${tracks[0].title}" to the queue.${note}`;
-    return { ok: true, message, state: this.publicState(room) };
+    const result = await this.enqueue(room, picked, params.userId);
+    return { ok: result.ok, message: result.message, state: this.publicState(room) };
   }
 
   /** Search without enqueueing (used by the command palette preview). */
   async search(params: { channelId: string; serverId: string; userId: string; query: string }): Promise<{ ok: boolean; tracks: MusicTrack[]; message: string }> {
     const room = this.room(params.channelId, params.serverId);
-    const results = await searchAll(params.query, 6);
-    const playable = results.flatMap((r) => r.tracks).filter((t) => t.streamable);
+    const results = await this.deps.library.searchTracks(params.serverId, params.query, 6);
+    const playable = results.filter((t) => t.streamable);
     room.searchSessions.set(params.userId, { tracks: playable, expiresAt: Date.now() + 5 * 60_000 });
     if (!playable.length) {
-      const blocked = results.flatMap((r) => r.tracks).find((t) => t.unavailableReason);
-      return { ok: false, tracks: [], message: blocked?.unavailableReason || 'No playable results found.' };
+      return { ok: false, tracks: [], message: 'No matching tracks in the library. Upload music from the Music Library panel.' };
     }
     return { ok: true, tracks: playable, message: `Found ${playable.length} track(s). Pick one to add it to the queue.` };
   }
@@ -404,16 +415,27 @@ export class MusicEngine {
   async pick(params: { channelId: string; serverId: string; userId: string; trackId: string }): Promise<{ ok: boolean; message: string; state: PublicMusicState }> {
     const room = this.room(params.channelId, params.serverId);
     const session = room.searchSessions.get(params.userId);
-    const track = session?.tracks.find((t) => t.id === params.trackId);
-    if (!track) return { ok: false, message: 'That search result has expired. Search again.', state: this.publicState(room) };
-    session!.tracks = session!.tracks.filter((t) => t.id !== params.trackId);
-    if (room.queue.length >= MAX_QUEUE_SIZE) {
-      return { ok: false, message: `The queue is full (max ${MAX_QUEUE_SIZE} tracks).`, state: this.publicState(room) };
+    const track = session?.tracks.find((t) => t.trackId === params.trackId || t.id === params.trackId);
+    if (track) {
+      session!.tracks = session!.tracks.filter((t) => t !== track);
+    } else {
+      const fresh = await this.deps.library.getPlayableTrack(params.serverId, params.trackId);
+      if (!fresh) return { ok: false, message: 'That search result has expired. Search again.', state: this.publicState(room) };
     }
-    room.queue.push({ track, requesterId: params.userId, addedAt: Date.now() });
-    if (!room.nowPlaying) await this.advance(room, params.userId);
-    this.emit(room);
-    return { ok: true, message: `Added "${track.title}" to the queue.`, state: this.publicState(room) };
+    const result = await this.enqueue(room, [track!], params.userId);
+    return { ok: result.ok, message: result.ok ? `Added "${track!.title}" to the queue.` : result.message, state: this.publicState(room) };
+  }
+
+  /** Queue an entire shared playlist (Play → append all tracks, in order). */
+  async playPlaylist(params: { channelId: string; serverId: string; userId: string; playlistId: string }): Promise<{ ok: boolean; message: string; state: PublicMusicState }> {
+    const room = this.room(params.channelId, params.serverId);
+    if (!this.duplicateGuard(room, params.userId)) {
+      return { ok: false, message: 'A play command is already being processed — give it a second.', state: this.publicState(room) };
+    }
+    const tracks = await this.deps.library.playlistTracks(params.serverId, params.playlistId);
+    if (!tracks.length) return { ok: false, message: 'That playlist is empty or does not exist on this server.', state: this.publicState(room) };
+    const result = await this.enqueue(room, tracks, params.userId);
+    return { ok: result.ok, message: result.message, state: this.publicState(room) };
   }
 
   pause(params: { channelId: string; serverId: string; userId: string }): { ok: boolean; message: string; state: PublicMusicState } {
@@ -428,18 +450,18 @@ export class MusicEngine {
     return { ok: true, message: 'Playback paused.', state: this.publicState(room) };
   }
 
-  resume(params: { channelId: string; serverId: string; userId: string }): { ok: boolean; message: string; state: PublicMusicState } {
+  async resume(params: { channelId: string; serverId: string; userId: string }): Promise<{ ok: boolean; message: string; state: PublicMusicState }> {
     const room = this.rooms.get(params.channelId);
     if (!room || !room.nowPlaying || !room.paused) {
       return { ok: false, message: 'Nothing is paused.', state: room ? this.publicState(room) : this.emptyState(params.channelId, params.serverId) };
     }
     const offset = room.nowPlaying.offsetSeconds + Math.max(0, (room.pausedAt - room.nowPlaying.startedAt) / 1000);
     room.paused = false;
-    void this.startTrack(room, room.nowPlaying.track, room.nowPlaying.requesterId, offset);
+    await this.startTrack(room, room.nowPlaying.track, room.nowPlaying.requesterId, offset);
     return { ok: true, message: 'Playback resumed.', state: this.publicState(room) };
   }
 
-  skip(params: { channelId: string; serverId: string; userId: string }): { ok: boolean; message: string; state: PublicMusicState } {
+  async skip(params: { channelId: string; serverId: string; userId: string }): Promise<{ ok: boolean; message: string; state: PublicMusicState }> {
     const room = this.rooms.get(params.channelId);
     if (!room || !room.nowPlaying) {
       return { ok: false, message: 'Nothing is playing.', state: room ? this.publicState(room) : this.emptyState(params.channelId, params.serverId) };
@@ -447,7 +469,7 @@ export class MusicEngine {
     const skippedTitle = room.nowPlaying.track.title;
     room.bot?.stopPlayback();
     room.nowPlaying = null;
-    void this.advance(room, params.userId);
+    await this.advance(room, params.userId);
     return { ok: true, message: `Skipped "${skippedTitle}".`, state: this.publicState(room) };
   }
 
@@ -473,11 +495,12 @@ export class MusicEngine {
 
   nowPlaying(params: { channelId: string; serverId: string; userId: string }): { ok: boolean; message: string; state: PublicMusicState } {
     const room = this.rooms.get(params.channelId);
+    if (process.env.MUSIC_DEBUG) console.log(`[MahyarMusic][debug] nowplaying poll room=${params.channelId} found=${Boolean(room)} np=${room?.nowPlaying?.track.title ?? 'null'} queue=${room?.queue.length ?? '-'} bot=${room ? Boolean(room.bot) : '-'} rooms=${this.rooms.size}`);
     const state = room ? this.publicState(room) : this.emptyState(params.channelId, params.serverId);
     return {
       ok: Boolean(state.now_playing),
       message: state.now_playing
-        ? `Now playing "${state.now_playing.title}" — ${state.now_playing.artist || 'unknown artist'} (${state.now_playing.provider}).`
+        ? `Now playing "${state.now_playing.title}" — ${state.now_playing.artist || 'unknown artist'} (from the server library).`
         : 'Nothing is playing right now.',
       state
     };

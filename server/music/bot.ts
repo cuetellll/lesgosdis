@@ -167,6 +167,9 @@ export class MusicBotWorker {
       case 'heartbeat':
         this.lastHeartbeatAt = Date.now();
         break;
+      case 'decode-debug':
+        if (process.env.MUSIC_DEBUG) console.log(`[MahyarMusic][worker] ${message.message}`);
+        break;
       case 'fatal':
         // Worker cannot continue at all: treat like a lost connection.
         this.ready = false;

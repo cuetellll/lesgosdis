@@ -42,7 +42,11 @@ const DELEGATED_ACTIONS = new Set([
   'openGroupSettings', 'renameGroupConversation', 'pickAttachment', 'toggleDesktopNotifications', 'copyText',
   'musicPause', 'musicResume', 'musicSkip', 'musicStop', 'musicOpenQueue', 'musicCommandHelp',
   'applySlashCompletion', 'hideSlashMenu', 'pickSearchResult', 'openSearchPicker', 'closeSearchPicker',
-  'toggleMusicPanel', 'selectAuthTab', 'togglePasswordVisibility'
+  'toggleMusicPanel', 'selectAuthTab', 'togglePasswordVisibility',
+  'musicOpenLibrary', 'musicLibrarySearch', 'setMusicLibraryTab', 'musicUploadPick', 'musicLibraryUploadFiles',
+  'musicTrackPlay', 'musicTrackDelete', 'musicTrackEditStart', 'musicTrackEditSave', 'musicPlaylistCreate',
+  'musicPlaylistOpen', 'musicPlaylistDelete', 'musicPlaylistPlay', 'musicPlaylistAddTrack', 'musicPlaylistRemoveTrack',
+  'musicLibraryCancelAddToPlaylist', 'musicLibraryRefresh', 'musicPlaylistAddToExisting', 'musicLibraryBackToPlaylists'
 ]);
 
 class MahyarGapApp {
@@ -116,6 +120,28 @@ class MahyarGapApp {
     this.slashMenu = null;      // { items, active } — /mp autocomplete in the composer
     this.searchPicker = null;   // { channelId, tracks } — interactive result picker
     this.musicProgressTimer = null;
+    /** Music Library panel state (browse / search / upload / playlists / recent). */
+    this.musicLibrary = {
+      open: false,
+      tab: 'tracks',          // 'tracks' | 'playlists' | 'recent' | 'playlist'
+      serverId: null,
+      search: '',
+      searchDebounce: null,
+      tracks: [],
+      total: 0,
+      usedBytes: 0,
+      limits: null,
+      playlists: [],
+      playlistDetail: null,
+      recent: [],
+      uploads: [],            // { id, name, size, progress, status, error }
+      editingId: null,
+      confirmDeleteId: null,
+      addToPlaylistTrackId: null,
+      loading: false,
+      error: null
+    };
+    this.slashTrackDebounce = null;
     this.api.onEvent(async (packet) => {
       if (!this.api.token() || !this.state.currentUserId) return;
       if (packet?.type === 'table_mutated') return; // local echo of this tab's own API calls
@@ -185,6 +211,12 @@ class MahyarGapApp {
       if (packet?.type === 'music_state') {
         // handled by the MahyarMusic module (registered in the constructor); the callback
         // already re-rendered what is visible. Nothing else to reconcile.
+        return;
+      }
+      if (packet?.type === 'music_library_updated') {
+        // Library content changed somewhere (upload, edit, delete, playlist change):
+        // refresh whichever part of the library panel is visible right now.
+        this.onMusicLibraryUpdated(packet.payload).catch(() => undefined);
         return;
       }
       if (packet?.type === 'server_membership_revoked' && packet.payload?.server_id === this.state.activeServerId) {
@@ -813,6 +845,8 @@ class MahyarGapApp {
   renderMusicPanel(channelId) {
     const state = this.music.stateFor(channelId);
     const visible = state && (state.now_playing || state.queue.length > 0 || state.bot_connected || state.last_error);
+    const listeners = this.state.voiceSessions.filter((session) => session.channel_id === channelId).length;
+    const listenerChip = listeners > 0 ? `<span class="music-panel-listeners" title="People listening in this voice room"><i class="fa-solid fa-headphones"></i>${listeners}</span>` : '';
     if (!visible) {
       return `
         <div class="music-panel music-panel-empty" aria-label="Mahyar Music">
@@ -820,10 +854,12 @@ class MahyarGapApp {
             <span class="music-panel-art music-art-idle"><i class="fa-solid fa-music"></i></span>
             <div class="min-w-0">
               <div class="text-xs font-bold text-white/85">Mahyar Music</div>
-              <div class="text-[11px] text-white/45 truncate">Type <span class="music-slash-hint">/mp play &lt;song&gt;</span> in the chat to play music together.</div>
+              <div class="text-[11px] text-white/45 truncate">Type <span class="music-slash-hint">/mp play &lt;track&gt;</span> or open the shared library.</div>
             </div>
+            ${listenerChip}
           </div>
           <div class="flex items-center gap-1.5 shrink-0">
+            <button data-action="musicOpenLibrary" class="music-panel-btn music-panel-btn-accent" title="Open the MAHYAR MUSIC LIBRARY" aria-label="Open music library"><i class="fa-solid fa-compact-disc text-xs mr-1"></i>Library</button>
             <button data-action="musicCommandHelp" class="music-panel-btn" title="Music commands" aria-label="Music commands"><i class="fa-solid fa-circle-question text-xs"></i></button>
           </div>
         </div>
@@ -842,10 +878,11 @@ class MahyarGapApp {
             <div class="flex items-center gap-2">
               <span class="music-panel-badge">MAHYAR MUSIC</span>
               ${np ? `<span class="music-panel-state ${np.paused ? 'is-paused' : 'is-playing'}">${np.paused ? 'PAUSED' : 'PLAYING'}</span>` : state.last_error ? '<span class="music-panel-state is-error">ERROR</span>' : ''}
+              ${listenerChip}
             </div>
             ${np ? `
               <div class="text-sm font-bold text-white truncate mt-0.5" title="${this.escapeAttr(np.title)}">${this.escapeHtml(np.title)}</div>
-              <div class="text-[11px] text-white/50 truncate">${this.escapeHtml(np.artist || 'Unknown artist')} • ${this.escapeHtml(np.provider)}</div>
+              <div class="text-[11px] text-white/50 truncate">${this.escapeHtml(np.artist || 'Unknown artist')} • from the server library</div>
               <div class="music-progress-row">
                 <span class="music-progress-time">${progress.label}</span>
                 <div class="music-progress-track"><div class="music-progress-fill" style="width:${progress.pct}%"></div></div>
@@ -865,6 +902,7 @@ class MahyarGapApp {
           ` : ''}
           <button data-action="musicStop" class="music-panel-btn music-panel-btn-danger" title="Stop and clear queue" aria-label="Stop playback"><i class="fa-solid fa-stop text-xs"></i></button>
           <button data-action="musicOpenQueue" class="music-panel-btn" title="Queue (${state.queue.length})" aria-label="Show queue"><i class="fa-solid fa-list-ol text-xs"></i></button>
+          <button data-action="musicOpenLibrary" class="music-panel-btn music-panel-btn-accent" title="Open the MAHYAR MUSIC LIBRARY" aria-label="Open music library"><i class="fa-solid fa-compact-disc text-xs"></i></button>
         </div>
         ${next ? `<div class="music-panel-next">Next: <span class="font-semibold text-white/80">${this.escapeHtml(next.title)}</span></div>` : ''}
       </div>
@@ -1011,15 +1049,58 @@ class MahyarGapApp {
       if (this.slashMenu) { this.slashMenu = null; this.renderSlashMenu(); }
       return;
     }
+    // After "/mp play <term>" the menu lists the shared library's tracks (debounced).
+    const playTerm = this.music.playSearchTerm ? this.music.playSearchTerm(value) : null;
+    if (playTerm !== null) {
+      this.updateSlashTrackResults(playTerm);
+      return;
+    }
     const typed = value.toLowerCase();
     const items = this.music.commandCatalog().filter((cmd) => cmd.name.startsWith(typed) || ('/mp ' + cmd.name.slice(5)).startsWith(typed) || typed.startsWith(cmd.name));
     if (!items.length) {
       if (this.slashMenu) { this.slashMenu = null; this.renderSlashMenu(); }
       return;
     }
-    const changed = !this.slashMenu || JSON.stringify(this.slashMenu.items.map((i) => i.name)) !== JSON.stringify(items.map((i) => i.name));
-    this.slashMenu = { items, active: this.slashMenu && this.slashMenu.items[this.slashMenu.active] ? Math.min(this.slashMenu.active, items.length - 1) : 0 };
+    const changed = !this.slashMenu || this.slashMenu.kind !== 'commands' || JSON.stringify(this.slashMenu.items.map((i) => i.name)) !== JSON.stringify(items.map((i) => i.name));
+    this.slashMenu = { kind: 'commands', items, active: this.slashMenu && this.slashMenu.items[this.slashMenu.active] ? Math.min(this.slashMenu.active, items.length - 1) : 0 };
     if (changed) this.renderSlashMenu();
+  }
+
+  /** Debounced library search feeding the /mp play autocomplete. */
+  updateSlashTrackResults(term) {
+    clearTimeout(this.slashTrackDebounce);
+    if (!term || term.length < 2) {
+      if (this.slashMenu?.kind === 'tracks') { this.slashMenu = null; this.renderSlashMenu(); }
+      return;
+    }
+    const serverId = this.state.activeServerId;
+    if (!serverId) return;
+    this.slashTrackDebounce = setTimeout(async () => {
+      try {
+        const data = await this.api.musicLibrary(serverId, { q: term, limit: 6 });
+        // Ignore stale responses for a query the user has already moved past.
+        const currentTerm = this.music.playSearchTerm(document.getElementById('main-chat-input')?.value || '');
+        if (currentTerm === null || currentTerm !== term) return;
+        const tracks = data?.tracks || [];
+        if (!tracks.length) {
+          this.slashMenu = { kind: 'tracks', items: [{ kind: 'info', name: 'No library match', args: '', description: `Nothing found for "${term}" — upload it in the Music Library panel.`, hint: '' }], active: 0 };
+        } else {
+          this.slashMenu = {
+            kind: 'tracks',
+            items: tracks.map((track) => ({
+              kind: 'track',
+              name: track.title,
+              args: track.artist || '',
+              description: `${String(track.format || '').toUpperCase()} • ${this.music.formatDuration(track.duration)} • ${track.uploader_name || ''}`,
+              hint: 'Enter plays it for everyone in voice',
+              trackId: track.id
+            })),
+            active: 0
+          };
+        }
+        this.renderSlashMenu();
+      } catch (_) { /* library unavailable — leave the composer alone */ }
+    }, 220);
   }
 
   renderSlashMenu() {
@@ -1037,12 +1118,13 @@ class MahyarGapApp {
       composer.parentElement.insertBefore(host, composer);
     }
     const items = this.slashMenu.items;
+    const isTracks = this.slashMenu.kind === 'tracks';
     host.innerHTML = `
-      <div class="slash-menu" role="listbox" aria-label="Music commands">
-        <div class="slash-menu-head"><i class="fa-solid fa-music text-[#22D3EE]"></i> Mahyar Music commands</div>
+      <div class="slash-menu ${isTracks ? 'slash-menu-tracks' : ''}" role="listbox" aria-label="${isTracks ? 'Library track results' : 'Music commands'}">
+        <div class="slash-menu-head"><i class="fa-solid fa-music text-[#22D3EE]"></i> ${isTracks ? 'Music Library — pick a track to play for everyone' : 'Mahyar Music commands'}</div>
         ${items.map((cmd, index) => `
-          <button type="button" class="slash-menu-item ${index === this.slashMenu.active ? 'is-active' : ''}" data-action="applySlashCompletion" data-action-args="${this.encodeActionArgs([index])}" role="option" aria-selected="${index === this.slashMenu.active}">
-            <span class="slash-cmd">${cmd.name}</span>
+          <button type="button" class="slash-menu-item ${index === this.slashMenu.active ? 'is-active' : ''} ${cmd.kind === 'track' ? 'is-track' : ''} ${cmd.kind === 'info' ? 'is-info' : ''}" data-action="applySlashCompletion" data-action-args="${this.encodeActionArgs([index])}" role="option" aria-selected="${index === this.slashMenu.active}">
+            <span class="slash-cmd">${this.escapeHtml(cmd.name)}</span>
             <span class="slash-args">${this.escapeHtml(cmd.args)}</span>
             <span class="slash-desc">${this.escapeHtml(cmd.description)}</span>
             ${cmd.hint ? `<span class="slash-hint">${this.escapeHtml(cmd.hint)}</span>` : ''}
@@ -1054,11 +1136,21 @@ class MahyarGapApp {
 
   applySlashCompletion(index) {
     if (!this.slashMenu) return;
-    const cmd = this.slashMenu.items[Number(index) || 0] || this.slashMenu.items[0];
-    if (!cmd) return;
+    const item = this.slashMenu.items[Number(index) || 0] || this.slashMenu.items[0];
+    if (!item) return;
     const input = document.getElementById('main-chat-input');
+    // Library track result: play it now instead of writing text into the composer.
+    if (item.kind === 'track' && item.trackId) {
+      if (input) { input.value = ''; this.autoResizeComposer(); }
+      this.slashMenu = null;
+      this.renderSlashMenu();
+      if (input) input.focus();
+      this.musicTrackPlay(item.trackId);
+      return;
+    }
+    if (item.kind === 'info') return; // informational row — nothing to apply
     if (!input) return;
-    input.value = `${cmd.name} `;
+    input.value = `${item.name} `;
     this.slashMenu = null;
     this.renderSlashMenu();
     input.focus();
@@ -1128,6 +1220,483 @@ class MahyarGapApp {
         </div>
       </div>
     `;
+  }
+
+  // =========================================================================
+  // MAHYAR MUSIC LIBRARY — shared library panel (browse, upload, playlists)
+  // =========================================================================
+
+  formatBytes(bytes) {
+    const b = Number(bytes) || 0;
+    if (b < 1024) return `${b} B`;
+    if (b < 1048576) return `${(b / 1024).toFixed(1)} KB`;
+    if (b < 1073741824) return `${(b / 1048576).toFixed(1)} MB`;
+    return `${(b / 1073741824).toFixed(2)} GB`;
+  }
+
+  formatDate(iso) {
+    try { return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); }
+    catch (_) { return ''; }
+  }
+
+  musicOpenLibrary() {
+    const serverId = this.state.activeServerId;
+    if (!serverId) return this.showToast('Open the music library from inside a server.', 'error');
+    this.musicLibrary.open = true;
+    this.musicLibrary.serverId = serverId;
+    this.musicLibrary.error = null;
+    this.state.activeModal = 'musicLibrary';
+    this.renderModals();
+    this.refreshMusicLibraryData().catch(() => undefined);
+  }
+
+  setMusicLibraryTab(tab) {
+    if (!['tracks', 'playlists', 'recent'].includes(tab)) return;
+    this.musicLibrary.tab = tab;
+    this.musicLibrary.editingId = null;
+    this.musicLibrary.confirmDeleteId = null;
+    this.musicLibrary.addToPlaylistTrackId = null;
+    this.renderModals();
+    this.refreshMusicLibraryData().catch(() => undefined);
+  }
+
+  musicLibraryRefresh() {
+    this.refreshMusicLibraryData().catch(() => undefined);
+  }
+
+  /** Fetches the data for the currently visible library tab. */
+  async refreshMusicLibraryData() {
+    const lib = this.musicLibrary;
+    const serverId = lib.serverId || this.state.activeServerId;
+    if (!serverId) return;
+    lib.loading = true;
+    lib.error = null;
+    this.renderMusicLibraryIfOpen();
+    try {
+      if (lib.tab === 'tracks') {
+        const data = await this.api.musicLibrary(serverId, { q: lib.search, limit: 60 });
+        lib.tracks = data?.tracks || [];
+        lib.total = data?.total || 0;
+        lib.usedBytes = data?.used_bytes || 0;
+        lib.limits = data?.limits || lib.limits;
+      } else if (lib.tab === 'playlists') {
+        const data = await this.api.musicPlaylists(serverId);
+        lib.playlists = data?.playlists || [];
+      } else if (lib.tab === 'recent') {
+        const data = await this.api.musicRecent(serverId, 12);
+        lib.recent = data?.tracks || [];
+      }
+    } catch (error) {
+      lib.error = error.message || 'The library could not be loaded.';
+    } finally {
+      lib.loading = false;
+      this.renderMusicLibraryIfOpen();
+    }
+  }
+
+  /** Realtime library updates (upload/delete/playlist changes from any member). */
+  async onMusicLibraryUpdated(payload) {
+    if (!this.musicLibrary.open) return;
+    if (payload?.server_id && payload.server_id !== (this.musicLibrary.serverId || this.state.activeServerId)) return;
+    await this.refreshMusicLibraryData();
+  }
+
+  musicLibrarySearch(value) {
+    const lib = this.musicLibrary;
+    lib.search = String(value || '').slice(0, 120);
+    clearTimeout(lib.searchDebounce);
+    lib.searchDebounce = setTimeout(() => this.refreshMusicLibraryData().catch(() => undefined), 280);
+  }
+
+  musicUploadPick() {
+    const input = document.getElementById('ml-file-input');
+    if (input) { input.value = ''; input.click(); }
+  }
+
+  /** Entry point for both the file picker and the drag & drop zone. Uses an explicit
+   *  FileList when given (drop path), otherwise reads the picker input's files. */
+  async musicLibraryUploadFiles(fileList) {
+    const files = Array.from(fileList && fileList.length ? fileList : (document.getElementById('ml-file-input')?.files || []));
+    if (!files.length) return;
+    const serverId = this.musicLibrary.serverId || this.state.activeServerId;
+    if (!serverId) return this.showToast('Open the library from a server to upload music.', 'error');
+    for (const file of files) await this.uploadOneMusicFile(serverId, file);
+  }
+
+  async uploadOneMusicFile(serverId, file) {
+    const lib = this.musicLibrary;
+    const entry = { id: `up_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`, name: file.name, size: file.size, progress: 0, status: 'uploading', error: null, title: '' };
+    lib.uploads = [...lib.uploads.slice(-4), entry];
+    this.renderMusicLibraryIfOpen();
+    try {
+      const limits = lib.limits;
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
+      if (limits?.formats && !limits.formats.includes(ext)) {
+        throw new Error(`.${ext || '?'} files are not supported — use ${limits.formats.join(', ')}.`);
+      }
+      if (limits && file.size > limits.max_file_mb * 1024 * 1024) {
+        throw new Error(`Audio files are limited to ${limits.max_file_mb} MB.`);
+      }
+      const init = await this.api.musicUploadInit(serverId, file);
+      entry.progress = 1;
+      await this.api.musicUploadPut(init.upload_url, file, init.content_type, (pct) => {
+        entry.progress = Math.max(1, pct);
+        this.updateUploadRowDom(entry);
+      });
+      entry.status = 'processing';
+      this.renderMusicLibraryIfOpen();
+      const complete = await this.api.musicUploadComplete(init.upload_token, {});
+      entry.status = 'done';
+      entry.title = complete?.track?.title || file.name;
+      entry.progress = 100;
+      this.showToast(`"${entry.title}" was added to the shared library.`, 'success');
+      await this.refreshMusicLibraryData();
+    } catch (error) {
+      entry.status = 'error';
+      entry.error = error.message || 'The upload failed.';
+      this.showToast(`Upload failed for "${file.name}": ${entry.error}`, 'error');
+    }
+    this.renderMusicLibraryIfOpen();
+    setTimeout(() => {
+      lib.uploads = lib.uploads.filter((row) => row.id !== entry.id || row.status === 'error');
+      this.renderMusicLibraryIfOpen();
+    }, entry.status === 'error' ? 8000 : 4000);
+  }
+
+  /** Live progress bar update without a modal re-render (keeps typing focus stable). */
+  updateUploadRowDom(entry) {
+    const row = document.getElementById(`ml-up-${entry.id}`);
+    if (!row) return;
+    const fill = row.querySelector('.ml-up-fill');
+    if (fill) fill.style.width = `${entry.progress}%`;
+    const label = row.querySelector('.ml-up-pct');
+    if (label) label.textContent = `${entry.progress}%`;
+  }
+
+  renderMusicLibraryIfOpen() {
+    if (this.state.activeModal === 'musicLibrary') this.renderModals();
+  }
+
+  async musicTrackPlay(trackId) {
+    this.musicLibrary.confirmDeleteId = null;
+    const channelId = this.musicTargetChannelId();
+    if (!channelId) return this.showToast('Join a voice channel first — the bot plays music there.', 'error');
+    const result = await this.runMusicCommand('play', { track_id: trackId });
+    if (result?.ok) this.showToast(result.message || 'Playing from the shared library.', 'success');
+  }
+
+  musicTrackEditStart(trackId) {
+    this.musicLibrary.editingId = this.musicLibrary.editingId === trackId ? null : trackId;
+    this.musicLibrary.confirmDeleteId = null;
+    this.renderMusicLibraryIfOpen();
+    const input = document.getElementById(`ml-title-${trackId}`);
+    if (input) { input.focus(); input.select(); }
+  }
+
+  async musicTrackEditSave(trackId) {
+    const title = String(document.getElementById(`ml-title-${trackId}`)?.value || '').trim();
+    const artist = String(document.getElementById(`ml-artist-${trackId}`)?.value || '').trim();
+    if (!title) return this.showToast('The track title cannot be empty.', 'error');
+    try {
+      await this.api.musicTrackPatch(trackId, { title, artist });
+      this.musicLibrary.editingId = null;
+      this.showToast('Track metadata updated.', 'success');
+      await this.refreshMusicLibraryData();
+    } catch (error) {
+      this.showToast(error.message || 'Could not update the track.', 'error');
+    }
+  }
+
+  async musicTrackDelete(trackId) {
+    if (this.musicLibrary.confirmDeleteId !== trackId) {
+      this.musicLibrary.confirmDeleteId = trackId;
+      this.musicLibrary.editingId = null;
+      this.renderMusicLibraryIfOpen();
+      setTimeout(() => {
+        if (this.musicLibrary.confirmDeleteId === trackId) {
+          this.musicLibrary.confirmDeleteId = null;
+          this.renderMusicLibraryIfOpen();
+        }
+      }, 4000);
+      return;
+    }
+    this.musicLibrary.confirmDeleteId = null;
+    try {
+      await this.api.musicTrackDelete(trackId);
+      this.showToast('Track removed from the library.', 'success');
+      await this.refreshMusicLibraryData();
+    } catch (error) {
+      this.showToast(error.message || 'Could not remove the track.', 'error');
+    }
+  }
+
+  async musicPlaylistCreate() {
+    const serverId = this.musicLibrary.serverId || this.state.activeServerId;
+    const name = String(document.getElementById('ml-playlist-name')?.value || '').trim();
+    if (!serverId) return;
+    if (!name) return this.showToast('Give the playlist a name first.', 'error');
+    try {
+      await this.api.musicPlaylistCreate(serverId, name.slice(0, 80));
+      const input = document.getElementById('ml-playlist-name');
+      if (input) input.value = '';
+      this.showToast(`Playlist "${name}" created.`, 'success');
+      await this.refreshMusicLibraryData();
+    } catch (error) {
+      this.showToast(error.message || 'Could not create the playlist.', 'error');
+    }
+  }
+
+  async musicPlaylistOpen(playlistId) {
+    try {
+      const data = await this.api.musicPlaylistDetail(playlistId);
+      this.musicLibrary.playlistDetail = data?.playlist || null;
+      this.musicLibrary.tab = 'playlist';
+      this.renderModals();
+    } catch (error) {
+      this.showToast(error.message || 'Could not open the playlist.', 'error');
+    }
+  }
+
+  musicLibraryBackToPlaylists() {
+    this.musicLibrary.tab = 'playlists';
+    this.musicLibrary.playlistDetail = null;
+    this.renderModals();
+    this.refreshMusicLibraryData().catch(() => undefined);
+  }
+
+  async musicPlaylistDelete(playlistId) {
+    if (this.musicLibrary.confirmDeleteId !== `pl:${playlistId}`) {
+      this.musicLibrary.confirmDeleteId = `pl:${playlistId}`;
+      this.renderMusicLibraryIfOpen();
+      setTimeout(() => {
+        if (this.musicLibrary.confirmDeleteId === `pl:${playlistId}`) {
+          this.musicLibrary.confirmDeleteId = null;
+          this.renderMusicLibraryIfOpen();
+        }
+      }, 4000);
+      return;
+    }
+    this.musicLibrary.confirmDeleteId = null;
+    try {
+      await this.api.musicPlaylistDelete(playlistId);
+      this.musicLibrary.playlistDetail = null;
+      if (this.musicLibrary.tab === 'playlist') this.musicLibrary.tab = 'playlists';
+      this.showToast('Playlist deleted.', 'success');
+      await this.refreshMusicLibraryData();
+    } catch (error) {
+      this.showToast(error.message || 'Could not delete the playlist.', 'error');
+    }
+  }
+
+  async musicPlaylistPlay(playlistId) {
+    const channelId = this.musicTargetChannelId();
+    if (!channelId) return this.showToast('Join a voice channel first — the bot plays music there.', 'error');
+    const result = await this.api.musicPlayPlaylist(channelId, playlistId);
+    if (result?.state) this.music.handleState(result.state);
+    if (result?.ok) {
+      this.showToast(result.message || 'Playlist queued.', 'success');
+    } else {
+      this.showToast(result?.error || 'The playlist could not be queued.', 'error');
+    }
+  }
+
+  /** "Add to playlist" flow: remember the track, jump to the playlists tab. */
+  musicPlaylistAddTrack(trackId) {
+    this.musicLibrary.addToPlaylistTrackId = trackId;
+    this.musicLibrary.tab = 'playlists';
+    this.musicLibrary.playlistDetail = null;
+    this.renderModals();
+    this.refreshMusicLibraryData().catch(() => undefined);
+  }
+
+  musicLibraryCancelAddToPlaylist() {
+    this.musicLibrary.addToPlaylistTrackId = null;
+    this.musicLibrary.tab = 'tracks';
+    this.renderModals();
+    this.refreshMusicLibraryData().catch(() => undefined);
+  }
+
+  async musicPlaylistRemoveTrack(playlistId, trackId) {
+    try {
+      await this.api.musicPlaylistRemoveTrack(playlistId, trackId);
+      await this.refreshMusicLibraryData();
+      await this.musicPlaylistOpen(playlistId);
+    } catch (error) {
+      this.showToast(error.message || 'Could not remove the track.', 'error');
+    }
+  }
+
+  /** Library row shared by the tracks tab, recent tab and playlist detail. */
+  musicLibraryTrackRow(track, { playlistId = null, index = 0 } = {}) {
+    const editing = this.musicLibrary.editingId === track.id;
+    const confirming = this.musicLibrary.confirmDeleteId === track.id;
+    return `
+      <div class="ml-track-row" data-track-id="${this.escapeAttr(track.id)}">
+        ${track.artwork_url
+          ? `<img class="ml-track-art" src="${this.escapeAttr(track.artwork_url)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
+          : `<span class="ml-track-art ml-art-fallback"><i class="fa-solid fa-music text-xs"></i></span>`}
+        <div class="ml-track-main">
+          ${editing ? `
+            <input id="ml-title-${this.escapeAttr(track.id)}" class="ml-edit-input" value="${this.escapeAttr(track.title)}" maxlength="200" placeholder="Track title" />
+            <input id="ml-artist-${this.escapeAttr(track.id)}" class="ml-edit-input" value="${this.escapeAttr(track.artist || '')}" maxlength="120" placeholder="Artist" />
+          ` : `
+            <div class="ml-track-title" title="${this.escapeAttr(track.title)}">${this.escapeHtml(track.title)}</div>
+            <div class="ml-track-sub" title="${this.escapeAttr(`${track.artist || 'Unknown artist'} • uploaded by ${track.uploader_name || '?'}`)}">
+              ${this.escapeHtml(track.artist || 'Unknown artist')} • ${this.escapeHtml(track.uploader_name || '?')} • ${this.escapeHtml(this.formatDate(track.created_at))}
+            </div>
+          `}
+        </div>
+        <span class="ml-format-badge">${this.escapeHtml(String(track.format || '').toUpperCase())}</span>
+        <span class="ml-duration">${this.music.formatDuration(track.duration)}</span>
+        ${editing ? `
+          <button data-action="musicTrackEditSave" data-action-args="${this.encodeActionArgs([track.id])}" class="ml-icon-btn ml-btn-save" title="Save metadata"><i class="fa-solid fa-check text-xs"></i></button>
+        ` : `
+          <button data-action="musicTrackPlay" data-action-args="${this.encodeActionArgs([track.id])}" class="ml-icon-btn ml-btn-play" title="Play for everyone in voice" aria-label="Play ${this.escapeAttr(track.title)}"><i class="fa-solid fa-play text-xs"></i></button>
+          ${playlistId
+            ? `<button data-action="musicPlaylistRemoveTrack" data-action-args="${this.encodeActionArgs([playlistId, track.id])}" class="ml-icon-btn" title="Remove from playlist"><i class="fa-solid fa-minus text-xs"></i></button>`
+            : `<button data-action="musicPlaylistAddTrack" data-action-args="${this.encodeActionArgs([track.id])}" class="ml-icon-btn" title="Add to playlist"><i class="fa-solid fa-plus text-xs"></i></button>`}
+          <button data-action="musicTrackEditStart" data-action-args="${this.encodeActionArgs([track.id])}" class="ml-icon-btn" title="Edit title / artist"><i class="fa-solid fa-pen text-xs"></i></button>
+          <button data-action="musicTrackDelete" data-action-args="${this.encodeActionArgs([track.id])}" class="ml-icon-btn ${confirming ? 'ml-btn-confirm' : 'ml-btn-danger'}" title="${confirming ? 'Click again to confirm removal' : 'Remove from library'}">
+            ${confirming ? '<span class="text-[10px] font-bold">SURE?</span>' : '<i class="fa-solid fa-trash text-xs"></i>'}
+          </button>
+        `}
+      </div>
+    `;
+  }
+
+  renderMusicLibraryModal() {
+    const lib = this.musicLibrary;
+    const limits = lib.limits;
+    const usedMb = limits ? this.formatBytes(lib.usedBytes) : '';
+    const quotaMb = limits ? `${limits.server_quota_mb} MB` : '';
+    const tabs = [
+      { id: 'tracks', label: 'Tracks', icon: 'fa-compact-disc' },
+      { id: 'playlists', label: 'Playlists', icon: 'fa-list' },
+      { id: 'recent', label: 'Recently played', icon: 'fa-clock-rotate-left' }
+    ];
+    const addingToPlaylist = Boolean(lib.addToPlaylistTrackId);
+    let body = '';
+
+    if (lib.tab === 'tracks') {
+      body = `
+        <div class="ml-toolbar">
+          <div class="ml-search">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input data-action="musicLibrarySearch" data-action-event="input" data-action-args="${this.encodeActionArgs([{ __pulsecordEventValue: true }])}" value="${this.escapeAttr(lib.search)}" placeholder="Search title, artist or filename…" aria-label="Search the music library" />
+          </div>
+          <span class="ml-quota">${lib.total} track(s)${limits ? ` • ${usedMb} / ${quotaMb}` : ''}</span>
+        </div>
+        <div id="ml-dropzone" class="ml-dropzone" data-action="musicUploadPick" title="Click or drop audio files here">
+          <i class="fa-solid fa-cloud-arrow-up"></i>
+          <div><strong>Upload music</strong> — drop MP3 / M4A / OGG / WAV / FLAC files here or click to choose</div>
+          <div class="ml-dropzone-sub">${limits ? `Up to ${limits.max_file_mb} MB per file${limits.storage_configured ? '' : ' — storage not configured on this deployment'}` : ''}</div>
+          <input id="ml-file-input" type="file" accept="${(limits?.formats || ['mp3']).map((f) => `.${f}`).join(',')}" multiple class="hidden" data-action="musicLibraryUploadFiles" data-action-event="change" />
+        </div>
+        ${lib.uploads.length ? `<div class="ml-uploads">${lib.uploads.map((up) => `
+          <div class="ml-upload-row ${up.status}" id="ml-up-${this.escapeAttr(up.id)}">
+            <i class="fa-solid ${up.status === 'error' ? 'fa-circle-exclaim text-[#FF5F6D]' : up.status === 'done' ? 'fa-circle-check text-[#23A55A]' : 'fa-spinner fa-spin'}"></i>
+            <span class="ml-up-name" title="${this.escapeAttr(up.name)}">${this.escapeHtml(up.title || up.name)}</span>
+            ${up.status === 'error' ? `<span class="ml-up-error">${this.escapeHtml(up.error || 'Failed')}</span>` : `
+              <div class="ml-up-bar"><div class="ml-up-fill" style="width:${up.progress}%"></div></div>
+              <span class="ml-up-pct">${up.status === 'processing' ? 'Verifying…' : `${up.progress}%`}</span>
+            `}
+          </div>`).join('')}</div>` : ''}
+        <div class="ml-list">
+          ${lib.loading ? '<div class="ml-empty"><i class="fa-solid fa-spinner fa-spin"></i> Loading the library…</div>' : ''}
+          ${!lib.loading && lib.error ? `<div class="ml-empty"><i class="fa-solid fa-triangle-exclamation"></i> ${this.escapeHtml(lib.error)}</div>` : ''}
+          ${!lib.loading && !lib.error && !lib.tracks.length ? `<div class="ml-empty"><i class="fa-solid fa-compact-disc"></i> The library is empty${lib.search ? ' for that search' : ''}. Upload your first track above.</div>` : ''}
+          ${!lib.loading && !lib.error ? lib.tracks.map((track) => this.musicLibraryTrackRow(track)).join('') : ''}
+        </div>
+      `;
+    } else if (lib.tab === 'playlists') {
+      body = `
+        ${addingToPlaylist ? `<div class="ml-adding-banner"><i class="fa-solid fa-plus"></i> Pick a playlist for the selected track <button data-action="musicLibraryCancelAddToPlaylist" class="ml-link">Cancel</button></div>` : ''}
+        <div class="ml-toolbar">
+          <input id="ml-playlist-name" class="ml-name-input" maxlength="80" placeholder="New playlist name…" aria-label="New playlist name" />
+          <button data-action="musicPlaylistCreate" class="ml-btn-primary"><i class="fa-solid fa-plus"></i> Create playlist</button>
+        </div>
+        <div class="ml-list">
+          ${lib.loading ? '<div class="ml-empty"><i class="fa-solid fa-spinner fa-spin"></i> Loading playlists…</div>' : ''}
+          ${!lib.loading && !lib.playlists.length ? '<div class="ml-empty"><i class="fa-solid fa-list"></i> No playlists yet — create the first one above.</div>' : ''}
+          ${lib.playlists.map((playlist) => `
+            <div class="ml-playlist-row">
+              <span class="ml-playlist-art"><i class="fa-solid fa-list text-xs"></i></span>
+              <div class="ml-track-main">
+                <div class="ml-track-title">${this.escapeHtml(playlist.name)}</div>
+                <div class="ml-track-sub">${playlist.track_count} track(s) • by ${this.escapeHtml(playlist.creator_name)}</div>
+              </div>
+              ${addingToPlaylist
+                ? `<button data-action="musicPlaylistAddToExisting" data-action-args="${this.encodeActionArgs([playlist.id])}" class="ml-btn-primary"><i class="fa-solid fa-plus"></i> Add here</button>`
+                : `
+                  <button data-action="musicPlaylistPlay" data-action-args="${this.encodeActionArgs([playlist.id])}" class="ml-btn-primary" title="Queue the whole playlist in voice"><i class="fa-solid fa-play"></i> Play</button>
+                  <button data-action="musicPlaylistOpen" data-action-args="${this.encodeActionArgs([playlist.id])}" class="ml-icon-btn" title="Open playlist"><i class="fa-solid fa-arrow-right text-xs"></i></button>
+                  <button data-action="musicPlaylistDelete" data-action-args="${this.encodeActionArgs([playlist.id])}" class="ml-icon-btn ${lib.confirmDeleteId === `pl:${playlist.id}` ? 'ml-btn-confirm' : 'ml-btn-danger'}" title="${lib.confirmDeleteId === `pl:${playlist.id}` ? 'Click again to confirm' : 'Delete playlist'}">${lib.confirmDeleteId === `pl:${playlist.id}` ? '<span class="text-[10px] font-bold">SURE?</span>' : '<i class="fa-solid fa-trash text-xs"></i>'}</button>
+                `}
+            </div>`).join('')}
+        </div>
+      `;
+    } else if (lib.tab === 'recent') {
+      body = `
+        <div class="ml-list">
+          ${lib.loading ? '<div class="ml-empty"><i class="fa-solid fa-spinner fa-spin"></i> Loading…</div>' : ''}
+          ${!lib.loading && !lib.recent.length ? '<div class="ml-empty"><i class="fa-solid fa-clock-rotate-left"></i> Nothing has been played yet. Play a track with /mp play or the ▶ button.</div>' : ''}
+          ${!lib.loading ? lib.recent.map((track) => this.musicLibraryTrackRow(track)).join('') : ''}
+        </div>
+      `;
+    } else if (lib.tab === 'playlist' && lib.playlistDetail) {
+      const detail = lib.playlistDetail;
+      body = `
+        <div class="ml-toolbar">
+          <button data-action="musicLibraryBackToPlaylists" class="ml-icon-btn" title="Back to playlists"><i class="fa-solid fa-arrow-left text-xs"></i></button>
+          <div class="ml-track-main">
+            <div class="ml-track-title">${this.escapeHtml(detail.name)}</div>
+            <div class="ml-track-sub">${(detail.tracks || []).length} track(s) • by ${this.escapeHtml(detail.creator_name)}</div>
+          </div>
+          <button data-action="musicPlaylistPlay" data-action-args="${this.encodeActionArgs([detail.id])}" class="ml-btn-primary"><i class="fa-solid fa-play"></i> Play playlist</button>
+          <button data-action="musicPlaylistDelete" data-action-args="${this.encodeActionArgs([detail.id])}" class="ml-icon-btn ${lib.confirmDeleteId === `pl:${detail.id}` ? 'ml-btn-confirm' : 'ml-btn-danger'}" title="Delete playlist">${lib.confirmDeleteId === `pl:${detail.id}` ? '<span class="text-[10px] font-bold">SURE?</span>' : '<i class="fa-solid fa-trash text-xs"></i>'}</button>
+        </div>
+        <div class="ml-list">
+          ${(detail.tracks || []).length ? detail.tracks.map((track, index) => this.musicLibraryTrackRow(track, { playlistId: detail.id, index })).join('') : '<div class="ml-empty"><i class="fa-solid fa-list"></i> This playlist is empty. Add tracks from the Tracks tab (+ button).</div>'}
+        </div>
+      `;
+    }
+
+    return `
+      <div class="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4" data-action="closeModal">
+        <div class="ml-modal bg-floating border border-subtle rounded-2xl w-full shadow-2xl overflow-hidden" data-stop-click="true" role="dialog" aria-label="Mahyar Music Library">
+          <div class="ml-header">
+            <div class="flex items-center gap-3 min-w-0">
+              <span class="ml-logo"><i class="fa-solid fa-compact-disc"></i></span>
+              <div class="min-w-0">
+                <h3 class="text-sm font-black tracking-wide text-white">MAHYAR MUSIC LIBRARY</h3>
+                <p class="text-[11px] text-white/45 truncate">Shared audio for this server — upload, browse and play together</p>
+              </div>
+            </div>
+            <button data-action="closeModal" class="ml-close" aria-label="Close the music library"><i class="fa-solid fa-xmark"></i></button>
+          </div>
+          <div class="ml-tabs">
+            ${tabs.map((tab) => `
+              <button data-action="setMusicLibraryTab" data-action-args="${this.encodeActionArgs([tab.id])}" class="ml-tab ${lib.tab === tab.id || (lib.tab === 'playlist' && tab.id === 'playlists') ? 'is-active' : ''}">
+                <i class="fa-solid ${tab.icon} text-xs"></i> ${tab.label}
+              </button>`).join('')}
+          </div>
+          <div class="ml-body">${body}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  async musicPlaylistAddToExisting(playlistId) {
+    const trackId = this.musicLibrary.addToPlaylistTrackId;
+    if (!trackId) return;
+    try {
+      await this.api.musicPlaylistAddTrack(playlistId, trackId);
+      this.musicLibrary.addToPlaylistTrackId = null;
+      this.showToast('Track added to the playlist.', 'success');
+      await this.refreshMusicLibraryData();
+    } catch (error) {
+      this.showToast(error.message || 'Could not add the track.', 'error');
+    }
   }
 
   getUserRolesInServer(userId, serverId) {
@@ -1606,47 +2175,7 @@ class MahyarGapApp {
     `;
   }
 
-  /** Snapshot of the composer (focus, caret, text, scroll) taken before the stage is rebuilt. */
-  captureComposerState() {
-    const input = document.getElementById('main-chat-input');
-    const viewport = document.getElementById('messages-scroll-viewport');
-    const state = {
-      focused: Boolean(input) && document.activeElement === input,
-      value: input ? input.value : null,
-      start: input ? input.selectionStart : 0,
-      end: input ? input.selectionEnd : 0,
-      scrollTop: viewport ? viewport.scrollTop : null,
-      nearBottom: viewport ? viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 80 : true,
-      key: this.activeContextKey()
-    };
-    return state;
-  }
-
-  /** Restores what captureComposerState saved, but only for the same conversation. */
-  restoreComposerState(snapshot) {
-    if (!snapshot) return;
-    const input = document.getElementById('main-chat-input');
-    if (input && snapshot.value !== null && snapshot.key === this.activeContextKey()) {
-      if (input.value !== snapshot.value) input.value = snapshot.value;
-      this.autoResizeComposer();
-      if (snapshot.focused) {
-        input.focus({ preventScroll: true });
-        try { input.setSelectionRange(snapshot.start, snapshot.end); } catch (_) { /* not selectable */ }
-      }
-    }
-    const viewport = document.getElementById('messages-scroll-viewport');
-    if (viewport && snapshot.scrollTop !== null && snapshot.key === this.activeContextKey()) {
-      viewport.scrollTop = snapshot.nearBottom ? viewport.scrollHeight : snapshot.scrollTop;
-    }
-  }
-
   renderMainStage() {
-    const snapshot = this.captureComposerState();
-    this.renderMainStageInner();
-    this.restoreComposerState(snapshot);
-  }
-
-  renderMainStageInner() {
     const stage = document.getElementById('main-stage-container');
     if (!stage) return;
     const callBanner = this.renderIncomingCallBanner();
@@ -1705,22 +2234,8 @@ class MahyarGapApp {
     html += this.renderChannelMessagesArea(ch, showVoiceTheater);
     html += `</div>`;
 
-    const fsStage = document.fullscreenElement && document.fullscreenElement.id === 'voice-theater-stage' ? document.fullscreenElement : null;
-    if (fsStage) {
-      // Replacing the fullscreen element would silently exit fullscreen, so swap only its
-      // contents (and the chat below it) and keep the live element, and its media, in place.
-      const tpl = document.createElement('div');
-      tpl.innerHTML = html;
-      const fresh = tpl.querySelector('#voice-theater-stage');
-      if (fresh) fsStage.replaceChildren(...fresh.childNodes);
-      const chatPane = stage.querySelector('#messages-scroll-viewport')?.closest('.flex-1.flex.overflow-hidden');
-      const freshChat = tpl.querySelector('#messages-scroll-viewport')?.closest('.flex-1.flex.overflow-hidden');
-      if (chatPane && freshChat) chatPane.replaceWith(freshChat);
-    } else {
-      stage.innerHTML = html;
-    }
+    stage.innerHTML = html;
     this.attachLiveVideoStreams();
-    this.syncFullscreenUi();
     this.autoResizeComposer();
     this.updateTypingIndicator();
   }
@@ -2112,7 +2627,7 @@ class MahyarGapApp {
       <div class="px-4 pb-4 pt-1 shrink-0">
         <div id="typing-indicator" class="typing-indicator" aria-live="polite"></div>
         ${replyMsg ? `
-          <div class="bg-elevated border-t border-x border-subtle rounded-t-lg px-3 py-1.5 flex items-center justify-between text-xs">
+          <div id="composer-reply-banner" class="bg-elevated border-t border-x border-subtle rounded-t-lg px-3 py-1.5 flex items-center justify-between text-xs">
             <span class="text-secondary-token truncate">
               Replying to <strong class="text-primary-token">@${this.escapeHtml(this.getUserById(replyMsg.user_id || replyMsg.sender_id).display_name)}</strong>: ${this.escapeHtml((replyMsg.content || '').slice(0, 60))}
             </span>
@@ -2123,7 +2638,7 @@ class MahyarGapApp {
         ` : ''}
 
         ${attachmentCount > 0 ? `
-          <div class="bg-elevated border-t border-x border-subtle px-3 py-2 flex flex-wrap gap-2">
+          <div id="composer-attachments" class="bg-elevated border-t border-x border-subtle px-3 py-2 flex flex-wrap gap-2">
             ${this.state.pendingAttachments.map((att, idx) => `
               <div class="flex items-center gap-2 bg-input px-2.5 py-1 rounded text-xs attachment-chip ${att.uploading ? 'is-uploading' : ''}">
                 <i class="fa-solid ${String(att.content_type || '').startsWith('image/') ? 'fa-file-image' : 'fa-paperclip'} text-[#7C5CFF]"></i>
@@ -2745,6 +3260,8 @@ class MahyarGapApp {
       root.innerHTML = this.renderGroupSettingsModal(convId);
     } else if (this.state.activeModal === 'musicQueue') {
       root.innerHTML = this.renderMusicQueueModal();
+    } else if (this.state.activeModal === 'musicLibrary') {
+      root.innerHTML = this.renderMusicLibraryModal();
     } else if (this.state.activeModal === 'searchPicker') {
       root.innerHTML = this.renderSearchPickerModal();
     } else {
@@ -3644,32 +4161,48 @@ class MahyarGapApp {
     document.querySelectorAll('[data-remote-identity][data-remote-source]').forEach((video) => this.rtc.attachRemoteVideo(video.dataset.remoteIdentity, video, video.dataset.remoteSource));
   }
 
-  /** Toggles fullscreen on the single voice stage; state is driven by `fullscreenchange`. */
   requestFullscreenStage() {
-    const stage = document.getElementById('voice-theater-stage');
-    if (!stage || !document.fullscreenEnabled) {
-      this.showToast('Fullscreen is not available in this browser.', 'error');
-      return;
+    const stage = document.getElementById('voice-theater-stage') || document.getElementById('webrtc-stage-grid');
+    if (!stage) return;
+    // Toggle behavior: one control handles both enter and exit, and the
+    // fullscreenchange listener keeps every button label honest.
+    try {
+      if (document.fullscreenElement === stage || document.webkitFullscreenElement === stage) {
+        if (document.exitFullscreen) void document.exitFullscreen().catch(() => undefined);
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+        return;
+      }
+      if (document.fullscreenElement || document.webkitFullscreenElement) {
+        if (document.exitFullscreen) void document.exitFullscreen().catch(() => undefined);
+      }
+      if (stage.requestFullscreen) {
+        stage.requestFullscreen().catch(() => this.showToast('The browser refused fullscreen mode.', 'error'));
+      } else if (stage.webkitRequestFullscreen) {
+        stage.webkitRequestFullscreen();
+      } else {
+        this.showToast('Fullscreen is not available in this browser.', 'error');
+      }
+    } catch (_) {
+      this.showToast('Fullscreen is not available right now.', 'error');
     }
-    if (this.fullscreenPending) return;
-    this.fullscreenPending = true;
-    const op = document.fullscreenElement
-      ? document.exitFullscreen()
-      : stage.requestFullscreen();
-    Promise.resolve(op)
-      .catch(() => this.showToast('The browser blocked fullscreen. Try again.', 'error'))
-      .finally(() => { this.fullscreenPending = false; });
   }
 
-  syncFullscreenUi() {
-    const active = Boolean(document.fullscreenElement);
-    document.querySelectorAll('[data-action="requestFullscreenStage"]').forEach((btn) => {
-      const icon = btn.querySelector('i.fa-solid');
-      if (icon) icon.className = `fa-solid ${active ? 'fa-compress' : 'fa-expand'}${icon.className.includes('mr-1') ? ' mr-1' : ''}`;
-      btn.title = active ? 'Exit full screen' : 'Full screen';
-      btn.setAttribute('aria-label', btn.title);
+  /** Keeps Focus/Exit labels and icons in sync with the real fullscreen state. */
+  updateFullscreenButtons() {
+    const active = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+    document.querySelectorAll('[data-action="requestFullscreenStage"]').forEach((button) => {
+      button.title = active ? 'Exit Fullscreen (Esc works too)' : 'Full Screen';
+      button.setAttribute('aria-label', active ? 'Exit fullscreen' : 'Enter fullscreen');
+      const icon = button.querySelector('i');
+      if (icon) {
+        icon.classList.toggle('fa-expand', !active);
+        icon.classList.toggle('fa-compress', active);
+      }
+      const label = button.childNodes.length > 1 && button.textContent?.includes('Focus')
+        ? button.querySelector('i')?.nextSibling
+        : null;
+      if (label) label.textContent = active ? 'Exit Focus' : 'Focus';
     });
-    document.documentElement.classList.toggle('stage-fullscreen', active);
   }
 
   // =========================================================================
@@ -3679,6 +4212,31 @@ class MahyarGapApp {
   /** Collision-safe client id: the server reuses it, so optimistic rows and socket echoes dedupe. */
   newClientId(prefix) {
     return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+  }
+
+  /**
+   * §8: appends one message row to the open message viewport WITHOUT rebuilding the
+   * main stage. The composer DOM node (focus, cursor, IME state, draft) survives
+   * every send. Falls back to a full render when the viewport is not the plain
+   * message list (search filter active, no viewport, …).
+   */
+  appendMessageRowLive(msg, isDm) {
+    const viewport = document.getElementById('messages-scroll-viewport');
+    if (!viewport || this.state.searchQuery.trim() || this.state.activeThreadMessage) return false;
+    viewport.querySelector('.px-6.py-10')?.remove(); // "No messages here yet" empty state
+    viewport.insertAdjacentHTML('beforeend', this.renderSingleMessageRow(msg, isDm));
+    return true;
+  }
+
+  /** Clears the reply banner / attachment chips in place and restores the composer shape. */
+  syncComposerExtras() {
+    const reply = this.state.replyingToMessage;
+    const attachments = this.state.pendingAttachments;
+    const banner = document.getElementById('composer-reply-banner');
+    if (!reply && banner) banner.remove();
+    const chipsHost = document.getElementById('composer-attachments');
+    if (chipsHost && !attachments.length) chipsHost.remove();
+    document.querySelector('.composer-box')?.classList.toggle('rounded-b-xl', Boolean(reply || attachments.length));
   }
 
   async sendMessage(isDm = false) {
@@ -3755,7 +4313,10 @@ class MahyarGapApp {
     this.state.replyingToMessage = null;
     this.state.pendingAttachments = [];
     this.saveDraft(contextKey, '');
-    this.renderMainStage();
+    // §8: append the optimistic row incrementally — the composer DOM node survives
+    // the send, so keyboard focus and the cursor never drop out of the input.
+    if (!this.appendMessageRowLive(optimistic, isDm)) this.renderMainStage();
+    else this.syncComposerExtras();
     this.scrollToBottom();
 
     try {
@@ -3828,7 +4389,8 @@ class MahyarGapApp {
 
   cancelReply() {
     this.state.replyingToMessage = null;
-    this.renderMainStage();
+    // §8: the composer must not rebuild (and drop focus) just to remove a banner.
+    this.syncComposerExtras();
   }
 
   startEditMessage(msgId) {
@@ -3981,7 +4543,23 @@ class MahyarGapApp {
 
   removePendingAttachment(idx) {
     this.state.pendingAttachments.splice(idx, 1);
-    this.renderMainStage();
+    // §8: keep the composer node alive — rebuild only the attachment chip strip.
+    const chipsHost = document.getElementById('composer-attachments');
+    if (chipsHost && this.state.pendingAttachments.length) {
+      chipsHost.innerHTML = this.state.pendingAttachments.map((att, i) => `
+        <div class="flex items-center gap-2 bg-input px-2.5 py-1 rounded text-xs attachment-chip ${att.uploading ? 'is-uploading' : ''}">
+          <i class="fa-solid ${String(att.content_type || '').startsWith('image/') ? 'fa-file-image' : 'fa-paperclip'} text-[#7C5CFF]"></i>
+          <span class="text-primary-token font-medium max-w-48 truncate">${this.escapeHtml(att.name || 'file')}</span>
+          <span class="text-muted-token">${this.escapeHtml(String(att.size || ''))}</span>
+          ${att.uploading ? `<span class="attachment-progress-track"><span id="attachment-upload-progress" class="attachment-progress-bar" style="width:${att.progress || 0}%"></span></span>` : ''}
+          <button data-action="removePendingAttachment" data-action-args="${this.encodeActionArgs([i])}" class="text-muted-token hover:text-[#F23F43]" title="Remove attachment">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>`).join('');
+      this.syncComposerExtras();
+    } else {
+      this.renderMainStage();
+    }
   }
 
   formatBytes(bytes) {
@@ -4653,10 +5231,6 @@ class MahyarGapApp {
   }
 
   bindGlobalEvents() {
-    document.addEventListener('fullscreenchange', () => {
-      this.syncFullscreenUi();
-      this.attachLiveVideoStreams();
-    });
     if (this.globalEventsBound) return;
     this.globalEventsBound = true;
     document.addEventListener('click', (event) => this.handleDelegatedClick(event));
@@ -4687,10 +5261,32 @@ class MahyarGapApp {
     document.addEventListener('touchend', cancelLongPress, { passive: true });
     document.addEventListener('touchmove', cancelLongPress, { passive: true });
     window.addEventListener('resize', () => this.applyMobileDrawerState());
+    // Fullscreen state → button labels (Enter via button or Escape both end here).
+    document.addEventListener('fullscreenchange', () => this.updateFullscreenButtons());
+    document.addEventListener('webkitfullscreenchange', () => this.updateFullscreenButtons());
+    // Music Library drag & drop: prevent the browser from navigating away and route
+    // dropped audio files into the shared library upload pipeline.
+    document.addEventListener('dragover', (event) => {
+      if (event.target?.closest?.('#ml-dropzone')) event.preventDefault();
+    });
+    document.addEventListener('drop', (event) => {
+      const zone = event.target?.closest?.('#ml-dropzone');
+      if (!zone) return;
+      event.preventDefault();
+      if (event.dataTransfer?.files?.length) {
+        void this.musicLibraryUploadFiles(event.dataTransfer.files);
+      }
+    });
     window.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         this.switchToDMs();
+      }
+      // §9: guarantee Escape exits fullscreen even when the browser's own
+      // handling is unavailable or blocked (kiosk/headless environments).
+      if (e.key === 'Escape' && (document.fullscreenElement || document.webkitFullscreenElement)) {
+        if (document.exitFullscreen) void document.exitFullscreen().catch(() => undefined);
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
       }
       if (e.key === 'Escape') {
         if (this.state.contextMenu) this.closeContextMenu();
@@ -4999,6 +5595,13 @@ class MahyarGapApp {
         return;
       }
       if (event.key === 'Tab') {
+        event.preventDefault();
+        this.applySlashCompletion(this.slashMenu.active);
+        return;
+      }
+      if (event.key === 'Enter' && !event.isComposing) {
+        // Enter selects the highlighted suggestion (command completion or a
+        // library track) instead of submitting the composer text.
         event.preventDefault();
         this.applySlashCompletion(this.slashMenu.active);
         return;

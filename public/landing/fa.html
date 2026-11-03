@@ -50,18 +50,19 @@
   <!-- ================= Hero ================= -->
   <section class="hero" id="home">
     <div class="hero-glow"></div>
+    <div class="hero-amber-orb" aria-hidden="true"></div>
     <div class="container hero-inner">
       <div class="hero-copy">
-        <h1>دوستانت. فضای خودت.<br /><span class="grad">لحظه‌های مشترک.</span></h1>
+        <h1>دوستانت. فضای خودت.<br /><span class="grad">لحظه‌های مشترک.</span><br /><span class="grad-orange">موسیقی شما.</span></h1>
         <p class="sub">با هم چت کنید، وارد اتاق‌های صوتی شوید، صفحه‌تان را به اشتراک بگذارید و با ربات موسیقی «ماهیار میوزیک» برای همدیگر آهنگ پخش کنید — همه‌چیز در یک‌جا، سبک و سریع.</p>
         <div class="hero-cta">
-          <a class="btn btn-primary" href="/app"><i class="fa-solid fa-rocket"></i> شروع کنید</a>
+          <a class="btn btn-accent" href="/app"><i class="fa-solid fa-rocket"></i> شروع کنید</a>
           <a class="btn btn-ghost" href="/app">ورود</a>
         </div>
         <div class="hero-meta">
           <span><i class="fa-solid fa-bolt"></i> پیام در لحظه</span>
           <span><i class="fa-solid fa-headphones"></i> اتاق صوتی با LiveKit</span>
-          <span><i class="fa-solid fa-music"></i> موسیقی مشترک با یک ربات واقعی</span>
+          <span class="meta-music"><i class="fa-solid fa-music"></i> موسیقی مشترک با یک ربات واقعی</span>
           <span><i class="fa-solid fa-feather"></i> سبک و کم‌مصرف</span>
         </div>
       </div>
@@ -125,7 +126,7 @@
           <p>کانال‌های متنی و پیام خصوصی با تحویل لحظه‌ای، پاسخ به پیام، ری‌اکشن و جست‌وجوی سریع بین پیام‌ها.</p>
           <span class="chip">Socket.IO</span>
         </article>
-        <article class="feature-card">
+        <article class="feature-card voice">
           <div class="feature-icon"><i class="fa-solid fa-headphones"></i></div>
           <h3>اتاق‌های صوتی</h3>
           <p>با یک کلیک وارد اتاق صوتی شوید؛ کیفیت گفت‌وگوی زنده با LiveKit، حتی روی اینترنت معمولی موبایل.</p>
@@ -137,7 +138,7 @@
           <p>دوربین روشن کنید، صفحه‌تان را برای بقیه به اشتراک بگذارید و با هم فیلم یا پروژه ببینید.</p>
           <span class="chip">WebRTC</span>
         </article>
-        <article class="feature-card">
+        <article class="feature-card community">
           <div class="feature-icon"><i class="fa-solid fa-user-group"></i></div>
           <h3>کامیونیتی خصوصی</h3>
           <p>سرور بسازید، کانال‌ها را سازمان‌دهی کنید، با لینک دعوت دوستان را بیاورید و دسترسی‌ها را مدیریت کنید.</p>
@@ -163,7 +164,8 @@
           <h3><span class="bot-dot"><i class="fa-solid fa-music"></i></span> ماهیار میوزیک — ربات موسیقی مشترک</h3>
           <p>مثل یک ربات موسیقی واقعی، «ماهیار میوزیک» خودش به اتاق صوتی می‌پیوندد و یک آهنگ را برای همه اعضا پخش می‌کند. هر نفر ولوم مخصوص خودش را دارد؛ کم یا زیاد کردن صدای شما، صدای بقیه را تغییر نمی‌دهد.</p>
           <ul>
-            <li><i class="fa-solid fa-check"></i> دستور <b>/mp play</b> با جست‌وجو و انتخاب نتایج</li>
+            <li><i class="fa-solid fa-check"></i> <b>کتابخانهٔ موسیقی مشترک</b> — فایل‌های MP3/FLAC خودتان را بالا ببرید و با هم پخش کنید</li>
+            <li><i class="fa-solid fa-check"></i> دستور <b>/mp play</b> کتابخانه را جست‌وجو می‌کند و نتایج را نشان می‌دهد</li>
             <li><i class="fa-solid fa-check"></i> صف مشترک، pause/resume، skip و stop برای همه</li>
             <li><i class="fa-solid fa-check"></i> ولوم اختصاصی ۰ تا ۲۰۰٪ و بی‌صدا کردن فقط برای خودتان</li>
             <li><i class="fa-solid fa-check"></i> شناسه مخصوص ربات در لیست اعضای اتاق صوتی</li>
@@ -171,7 +173,7 @@
         </div>
         <div class="code-hint" aria-hidden="true">
           <div>/mp play <span class="k">believer</span></div>
-          <div>/mp play <span class="k">https://…/track-link</span></div>
+          <div>/mp play <span class="k">imagine dragons</span></div>
           <div>/mp queue</div>
           <div>/mp skip</div>
         </div>
@@ -222,7 +224,7 @@
         <h2>فضای خودتان را بسازید</h2>
         <p>چند دقیقه بیشتر طول نمی‌کشد: حساب بسازید، دوستان را دعوت کنید و اولین آهنگ مشترک را پخش کنید.</p>
         <div class="hero-cta">
-          <a class="btn btn-primary" href="/app">شروع کنید — رایگان</a>
+          <a class="btn btn-accent" href="/app">شروع کنید — رایگان</a>
           <a class="btn btn-ghost" href="/app">ورود به حساب</a>
         </div>
       </div>

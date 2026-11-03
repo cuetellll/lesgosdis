@@ -9,13 +9,13 @@
   'use strict';
 
   const MUSIC_COMMANDS = [
-    { name: '/mp play', args: '<song name or link>', description: 'Search or resolve music and add it to playback.', hint: 'Type a song name, or paste a supported track/playlist link.' },
-    { name: '/mp queue', args: '', description: 'Show the upcoming music queue.', hint: '' },
-    { name: '/mp pause', args: '', description: 'Pause playback for everyone.', hint: '' },
-    { name: '/mp resume', args: '', description: 'Resume playback for everyone.', hint: '' },
-    { name: '/mp skip', args: '', description: 'Skip the current track.', hint: '' },
-    { name: '/mp stop', args: '', description: 'Stop playback and clear the queue.', hint: '' },
-    { name: '/mp nowplaying', args: '', description: 'Show the currently playing track.', hint: '' }
+    { name: '/mp play', args: '<track name>', description: 'Search the shared Music Library and play it for everyone.', hint: 'Type a track name — results come from your server library.', kind: 'command' },
+    { name: '/mp queue', args: '', description: 'Show the upcoming music queue.', hint: '', kind: 'command' },
+    { name: '/mp pause', args: '', description: 'Pause playback for everyone.', hint: '', kind: 'command' },
+    { name: '/mp resume', args: '', description: 'Resume playback for everyone.', hint: '', kind: 'command' },
+    { name: '/mp skip', args: '', description: 'Skip the current track.', hint: '', kind: 'command' },
+    { name: '/mp stop', args: '', description: 'Stop playback and clear the queue.', hint: '', kind: 'command' },
+    { name: '/mp nowplaying', args: '', description: 'Show the currently playing track.', hint: '', kind: 'command' }
   ];
 
   const MUSIC_BOT_PREFIX = 'mahyar-music:';
@@ -61,6 +61,13 @@
       if (!known.includes(sub)) return { command: 'unknown', args: segments.slice(2).join(' '), complete: true, error: `Unknown command "/mp ${sub}". Try /mp play <song or link>.` };
       const args = text.slice(1).replace(/^\s*mp\s+\S+/i, '').trim();
       return { command: sub, args, complete: true };
+    }
+
+    /** True when the input is a /mp play command with a search term typed after it. */
+    playSearchTerm(input) {
+      const text = String(input || '');
+      const match = /^\s*\/mp\s+play\s+(.{1,120})$/i.exec(text);
+      return match ? match[1].trim() : null;
     }
 
     /**

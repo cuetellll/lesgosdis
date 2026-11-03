@@ -1,5 +1,5 @@
 // ============================================================================
-// PulseCord — Production PostgreSQL Schema (Prisma ORM)
+// Mahyar Gap — Production PostgreSQL Schema (Prisma ORM)
 // Optimized with composite indexes, cascading relations, and RBAC bitfields
 // Run: `npx prisma migrate deploy` (configured automatically in railway.json)
 // ============================================================================
@@ -61,6 +61,8 @@ model User {
   voiceSessions    VoiceSession[]
   notifications    Notification[]
   auditLogs        AuditLog[]     @relation("AuditActor")
+  uploadedTracks   MusicTrack[]   @relation("MusicUploader")
+  musicPlaylists   MusicPlaylist[] @relation("MusicPlaylistCreator")
 
   @@index([username])
   @@index([email])
@@ -103,6 +105,8 @@ model Server {
   invitations       Invitation[]
   bans              Ban[]
   auditLogs         AuditLog[]
+  musicTracks       MusicTrack[]
+  musicPlaylists    MusicPlaylist[]
 
   @@index([ownerId])
   @@index([inviteCode])
@@ -326,6 +330,77 @@ model Ban {
   server    Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
 
   @@unique([serverId, userId])
+}
+
+// ---------------------------------------------------------------------------
+// Shared music library. Only metadata lives in PostgreSQL; the audio bytes live
+// in the private S3-compatible object store (e.g. Cloudflare R2) and are read
+// through short-lived signed URLs. One row per uploaded file per server.
+// ---------------------------------------------------------------------------
+model MusicTrack {
+  id           String    @id @default(cuid())
+  serverId     String
+  uploaderId   String
+  title        String
+  artist       String    @default("")
+  album        String?
+  /// Seconds, from ffprobe at upload-verify time; 0 when unknown.
+  duration     Int       @default(0)
+  /// Normalized container/codec label: mp3 | m4a | aac | ogg | opus | wav | flac
+  format       String
+  mimeType     String
+  fileSize     Int
+  /// Object key inside the private bucket. Never exposed to clients.
+  storageKey   String    @unique
+  /// Optional artwork object key (extracted embedded cover art).
+  artworkKey   String?
+  /// Bucket ETag of the upload — used for exact-duplicate detection.
+  contentHash  String    @default("")
+  originalName String
+  playCount    Int       @default(0)
+  lastPlayedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  server   Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  uploader User   @relation("MusicUploader", fields: [uploaderId], references: [id])
+
+  playlistItems MusicPlaylistTrack[]
+
+  @@index([serverId, createdAt(sort: Desc)])
+  @@index([serverId, lastPlayedAt(sort: Desc)])
+  @@index([uploaderId])
+}
+
+model MusicPlaylist {
+  id        String   @id @default(cuid())
+  serverId  String
+  creatorId String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  server  Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  creator User   @relation("MusicPlaylistCreator", fields: [creatorId], references: [id])
+  items   MusicPlaylistTrack[]
+
+  @@unique([serverId, name])
+  @@index([serverId, updatedAt(sort: Desc)])
+}
+
+/// Ordered join table. Playlists reference the shared track row — audio files
+/// are never duplicated per playlist.
+model MusicPlaylistTrack {
+  id         String @id @default(cuid())
+  playlistId String
+  trackId    String
+  position   Int
+
+  playlist MusicPlaylist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  track    MusicTrack    @relation(fields: [trackId], references: [id], onDelete: Cascade)
+
+  @@unique([playlistId, trackId])
+  @@index([playlistId, position])
 }
 
 model AuditLog {

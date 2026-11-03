@@ -37,6 +37,10 @@ function send(message: Record<string, unknown>) {
   try { if (process.send) process.send(message); } catch { /* parent gone */ }
 }
 
+function debugLog(message: string) {
+  if (process.env.MUSIC_DEBUG) send({ type: 'decode-debug', message });
+}
+
 async function resolveFfmpeg(): Promise<string | null> {
   const { access } = await import('fs/promises');
   const exists = async (bin: string) => { try { await access(bin); return true; } catch { return false; } };
@@ -58,6 +62,23 @@ let shuttingDown = false;
 /** Monotonic decode epoch: every startPlayback bumps it; stale async events from a
  *  killed ffmpeg must never be attributed to the newer track. */
 let decodeEpoch = 0;
+/**
+ * rtc-node allows exactly ONE pending captureFrame per AudioSource. When a track is
+ * killed mid-frame, its pump can still be awaiting captureFrame; if the next track's
+ * pump calls captureFrame concurrently the source throws "InvalidState" and the whole
+ * playback dies. Every pump therefore queues its captures: a stale pump's pending
+ * capture settles first, and only then does the live pump push its frame.
+ */
+let captureChain: Promise<unknown> = Promise.resolve();
+
+function captureFrameQueued(source: AudioSource, frame: AudioFrame, epoch: number): Promise<void> {
+  const result = captureChain.then(() => {
+    if (epoch !== decodeEpoch) return; // stale pump — drop the frame silently
+    return source.captureFrame(frame);
+  });
+  captureChain = result.catch(() => undefined);
+  return result;
+}
 
 function stopPlayback() {
   decodeEpoch += 1;
@@ -87,8 +108,8 @@ async function startPlayback(url: string, offsetSeconds: number) {
   let stderrHead = '';
   child.stderr.on('data', (chunk: Buffer) => {
     if (epoch !== decodeEpoch) return;
+    stderrHead = (stderrHead + chunk.toString()).slice(-2_000);
     if (stderrHead.length > 8_000) return;
-    stderrHead += chunk.toString();
     const match = stderrHead.match(/Duration:\s*(\d+):(\d{2}):(\d{2})\.(\d{2})/);
     if (match) {
       const seconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]) + Number(match[4]) / 100;
@@ -101,10 +122,13 @@ async function startPlayback(url: string, offsetSeconds: number) {
   });
   child.on('close', (code) => {
     if (ffmpeg === child) ffmpeg = null;
+    debugLog(`ffmpeg close epoch=${epoch} current=${decodeEpoch} code=${code}`);
     // A killed predecessor must never be reported as the current track's failure.
     if (epoch !== decodeEpoch || shuttingDown) return;
-    if (code === 0) send({ type: 'track-ended' });
-    else send({ type: 'fatal-error', message: `Audio decoder exited unexpectedly (code ${code}).` });
+    if (code === 0) { send({ type: 'track-ended' }); return; }
+    // Surface the decoder's own error lines so failures are diagnosable in the UI.
+    const stderrTail = stderrHead.split('\n').map((line) => line.trim()).filter((line) => line.length > 0).slice(-2).join(' | ');
+    send({ type: 'fatal-error', message: `Audio decoder exited unexpectedly (code ${code}).${stderrTail ? ` Decoder said: ${stderrTail}` : ''}` });
   });
 
   const source = audioSource!;
@@ -118,12 +142,20 @@ async function startPlayback(url: string, offsetSeconds: number) {
           const frameBytes = buffer.subarray(0, BYTES_PER_FRAME);
           buffer = buffer.subarray(BYTES_PER_FRAME);
           const samples = new Int16Array(frameBytes.buffer, frameBytes.byteOffset, frameBytes.length / 2);
-          await source.captureFrame(new AudioFrame(samples, SAMPLE_RATE, CHANNELS, SAMPLES_PER_FRAME));
+          await captureFrameQueued(source, new AudioFrame(samples, SAMPLE_RATE, CHANNELS, SAMPLES_PER_FRAME), epoch);
         }
       }
-    } catch { /* source closed while stopping */ }
+    } catch (error) {
+      // A real failure on the LIVE pump kills the decoder and reports honestly
+      // (the engine advances the queue; the UI shows the error state).
+      if (epoch !== decodeEpoch || shuttingDown) return;
+      debugLog(`pump error epoch=${epoch}: ${error instanceof Error ? error.message : error}`);
+      stopPlayback(); // kills ffmpeg and bumps the epoch so the close handler stays silent
+      send({ type: 'fatal-error', message: `Audio pipeline error: ${error instanceof Error ? error.message : 'unknown failure'}` });
+    }
   };
   void pump();
+  debugLog(`ffmpeg spawned epoch=${epoch} url=${url.slice(0, 60)}...`);
   send({ type: 'playing' });
 }
 

@@ -132,6 +132,7 @@ class MahyarAPI {
     this.socket.on('notification:new', (payload) => this.emitEvent('notification_new', payload));
     this.socket.on('direct_message:conversation_updated', (payload) => this.emitEvent('dm_conversation_updated', payload));
     this.socket.on('music:state', (state) => this.emitEvent('music_state', state));
+    this.socket.on('music_library_updated', (payload) => this.emitEvent('music_library_updated', payload));
     return this.socket;
   }
 
@@ -152,6 +153,114 @@ class MahyarAPI {
 
   joinServer(serverId) {
     if (this.socket?.connected && serverId) this.socket.emit('server:join', serverId);
+  }
+
+  // ------------------------------ Mahyar Music shared library (REST) ------------------------------
+
+  musicLibraryStatus(serverId) {
+    return this.request(`/api/music/library/status?server_id=${encodeURIComponent(serverId || '')}`);
+  }
+
+  musicLibrary(serverId, { q = '', limit = 60, offset = 0 } = {}) {
+    const params = new URLSearchParams({ server_id: serverId || '', limit: String(limit), offset: String(offset) });
+    if (q) params.set('q', q);
+    return this.request(`/api/music/library?${params}`);
+  }
+
+  musicRecent(serverId, limit = 10) {
+    return this.request(`/api/music/recent?server_id=${encodeURIComponent(serverId || '')}&limit=${limit}`);
+  }
+
+  /** Asks the backend for a presigned upload slot (format/size/quota checks happen there). */
+  musicUploadInit(serverId, file) {
+    return this.request('/api/music/upload/init', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ server_id: serverId, file_name: file.name, content_type: file.type || undefined, size_bytes: file.size })
+    });
+  }
+
+  /** PUTs the bytes straight into the private bucket via the presigned URL (progress-capable).
+   *  No Authorization header here on purpose: the signature itself authorizes the request. */
+  musicUploadPut(uploadUrl, file, contentType, onProgress) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', uploadUrl);
+      if (contentType) xhr.setRequestHeader('Content-Type', contentType);
+      xhr.upload.onprogress = (event) => { if (event.lengthComputable && typeof onProgress === 'function') onProgress(Math.round((event.loaded / event.total) * 100)); };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) return resolve(true);
+        let message = `Storage rejected the upload (HTTP ${xhr.status}).`;
+        try { const parsed = JSON.parse(xhr.responseText || '{}'); if (parsed?.Code === 'EntityTooLarge') message = 'The file is larger than the configured limit.'; } catch (_) {}
+        reject(new Error(message));
+      };
+      xhr.onerror = () => reject(new Error('Upload to storage failed: the network connection was interrupted.'));
+      xhr.send(file);
+    });
+  }
+
+  /** Tells the backend the bytes are in the bucket; it verifies and creates the library entry. */
+  musicUploadComplete(uploadToken, meta = {}) {
+    return this.request('/api/music/upload/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ upload_token: uploadToken, ...meta })
+    });
+  }
+
+  musicTrackPatch(trackId, meta) {
+    return this.request(`/api/music/tracks/${encodeURIComponent(trackId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(meta) });
+  }
+
+  musicTrackDelete(trackId) {
+    return this.request(`/api/music/tracks/${encodeURIComponent(trackId)}`, { method: 'DELETE' });
+  }
+
+  musicPlaylists(serverId) {
+    return this.request(`/api/music/playlists?server_id=${encodeURIComponent(serverId || '')}`);
+  }
+
+  musicPlaylistDetail(playlistId) {
+    return this.request(`/api/music/playlists/${encodeURIComponent(playlistId)}`);
+  }
+
+  musicPlaylistCreate(serverId, name) {
+    return this.request('/api/music/playlists', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ server_id: serverId, name }) });
+  }
+
+  musicPlaylistRename(playlistId, name) {
+    return this.request(`/api/music/playlists/${encodeURIComponent(playlistId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+  }
+
+  musicPlaylistDelete(playlistId) {
+    return this.request(`/api/music/playlists/${encodeURIComponent(playlistId)}`, { method: 'DELETE' });
+  }
+
+  musicPlaylistAddTrack(playlistId, trackId) {
+    return this.request(`/api/music/playlists/${encodeURIComponent(playlistId)}/tracks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ track_id: trackId }) });
+  }
+
+  musicPlaylistRemoveTrack(playlistId, trackId) {
+    return this.request(`/api/music/playlists/${encodeURIComponent(playlistId)}/tracks/${encodeURIComponent(trackId)}`, { method: 'DELETE' });
+  }
+
+  musicPlaylistReorder(playlistId, orderedTrackIds) {
+    return this.request(`/api/music/playlists/${encodeURIComponent(playlistId)}/tracks`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ordered_track_ids: orderedTrackIds }) });
+  }
+
+  /** Queues a whole playlist into a voice channel (ack-based socket command). */
+  musicPlayPlaylist(channelId, playlistId) {
+    return new Promise((resolve) => {
+      if (!this.socket?.connected) return resolve({ ok: false, error: 'Realtime connection is offline — try again in a moment.' });
+      let settled = false;
+      const timer = setTimeout(() => { if (!settled) { settled = true; resolve({ ok: false, error: 'The playlist request timed out.' }); } }, 10_000);
+      this.socket.emit('music:play_playlist', { channel_id: channelId, playlist_id: playlistId }, (result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(result || { ok: false, error: 'The music service did not respond.' });
+      });
+    });
   }
 
   joinChannel(channelId) {

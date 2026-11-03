@@ -1,23 +1,29 @@
 /**
  * Mahyar Music — server integration.
  *
- * Wires the engine into the existing Express app and Socket.IO namespace:
+ * Wires the engine + shared music library into the existing Express app and
+ * Socket.IO namespace:
  *   - socket `music:command` (authorized, validated, rate-limited by the global
  *     per-socket middleware) with ack responses;
- *   - REST reads: provider status + room state snapshots;
- *   - REST write: per-server music toggle (MANAGE_SERVER);
+ *   - REST reads: library browse/search/recent, playlists, room state snapshots;
+ *   - REST writes: upload init/complete, track edit/delete, playlist management,
+ *     per-server music toggle (MANAGE_SERVER);
  *   - graceful shutdown hook.
  *
- * All authorization happens here on the backend: voice-channel access, CONNECT_VOICE
- * membership, and the per-server musicEnabled toggle. The default posture is open —
- * anyone who can join the voice channel and speak can use music.
+ * All authorization happens here on the backend: voice-channel access,
+ * CONNECT_VOICE membership and the per-server musicEnabled toggle for playback;
+ * library membership + MUSIC_* role nodes for uploads and administration.
+ * The default posture is open — anyone who can join the voice channel and speak
+ * can use music, and every member can contribute to the library (five friends).
  */
 import { Express, Request, Response, NextFunction } from 'express';
 import { Server as SocketIOServer } from 'socket.io';
 import { z } from 'zod';
 import type { PrismaClient } from '@prisma/client';
 import { MusicEngine } from './engine';
-import { providerStatuses } from './providers';
+import { MusicLibraryResolver, MusicTrack as PlayableTrack } from './types';
+import { registerMusicLibrary, libraryLimits } from './library';
+import { presignDownload } from './storage';
 
 type AuthedRequest = Request & { userId?: string };
 
@@ -50,6 +56,111 @@ export function registerMusicSystem(deps: MusicSystemDeps): MusicSystem {
   // The engine exists only when LiveKit is fully configured; music commands report an
   // honest configuration error otherwise (never a fake "playing" state).
   const liveKitConfigured = deps.liveKit.ok;
+
+  // ------------------------------------------------------------ permissions
+
+  /** Upload gate: owner always can; when MUSIC_UPLOAD is configured on any role only
+   *  holders may upload; otherwise the default-open posture applies to all members. */
+  async function canUploadMusic(userId: string, serverId: string): Promise<boolean> {
+    const server = await prisma.server.findUnique({ where: { id: serverId }, select: { ownerId: true } });
+    if (!server) return false;
+    if (server.ownerId === userId) return true;
+    const configured = await prisma.permission.count({ where: { node: 'MUSIC_UPLOAD', role: { serverId } } });
+    if (!configured) return true;
+    return deps.serverPermission(userId, serverId, 'MUSIC_UPLOAD').catch(() => false);
+  }
+
+  /** Library administration (edit/remove other members' tracks & playlists): owner,
+   *  ADMINISTRATOR or MANAGE_SERVER; plus MUSIC_MANAGE holders when configured, and
+   *  MANAGE_MESSAGES holders by default. */
+  async function canManageLibrary(userId: string, serverId: string): Promise<boolean> {
+    const server = await prisma.server.findUnique({ where: { id: serverId }, select: { ownerId: true } });
+    if (!server) return false;
+    if (server.ownerId === userId) return true;
+    if (await deps.serverPermission(userId, serverId, 'ADMINISTRATOR').catch(() => false)) return true;
+    if (await deps.serverPermission(userId, serverId, 'MANAGE_SERVER').catch(() => false)) return true;
+    const configured = await prisma.permission.count({ where: { node: 'MUSIC_MANAGE', role: { serverId } } });
+    if (configured) return deps.serverPermission(userId, serverId, 'MUSIC_MANAGE').catch(() => false);
+    return deps.serverPermission(userId, serverId, 'MANAGE_MESSAGES').catch(() => false);
+  }
+
+  async function isMemberOfServer(userId: string, serverId: string): Promise<boolean> {
+    const server = await prisma.server.findUnique({ where: { id: serverId }, select: { ownerId: true } });
+    if (!server) return false;
+    if (server.ownerId === userId) return true;
+    const membership = await prisma.serverMember.findUnique({ where: { serverId_userId: { serverId, userId } }, select: { id: true } });
+    return Boolean(membership);
+  }
+
+  // ------------------------------------------------------ library resolver
+
+  function rowToPlayable(row: {
+    id: string; title: string; artist: string; duration: number; storageKey: string; artworkKey: string | null;
+  }): PlayableTrack {
+    return {
+      id: `lib:${row.id}`,
+      origin: 'library',
+      trackId: row.id,
+      title: row.title,
+      artist: row.artist,
+      artworkUrl: row.artworkKey ? `/api/music/tracks/${row.id}/artwork` : undefined,
+      duration: row.duration,
+      streamable: true,
+      storageKey: row.storageKey
+    };
+  }
+
+  const libraryResolver: MusicLibraryResolver = {
+    async searchTracks(serverId, query, limit) {
+      const trimmed = query.trim();
+      if (!trimmed) return [];
+      const rows = await prisma.musicTrack.findMany({
+        where: {
+          serverId,
+          OR: [
+            { title: { contains: trimmed, mode: 'insensitive' } },
+            { artist: { contains: trimmed, mode: 'insensitive' } },
+            { originalName: { contains: trimmed, mode: 'insensitive' } }
+          ]
+        },
+        orderBy: { createdAt: 'desc' },
+        take: Math.min(Math.max(limit, 1), 10),
+        select: { id: true, title: true, artist: true, duration: true, storageKey: true, artworkKey: true }
+      });
+      return rows.map(rowToPlayable);
+    },
+    async getPlayableTrack(serverId, trackId) {
+      const row = await prisma.musicTrack.findFirst({
+        where: { id: trackId, serverId },
+        select: { id: true, title: true, artist: true, duration: true, storageKey: true, artworkKey: true }
+      });
+      return row ? rowToPlayable(row) : null;
+    },
+    async streamUrl(track) {
+      if (!track.storageKey) return null;
+      return presignDownload(track.storageKey);
+    },
+    async playlistTracks(serverId, playlistId) {
+      const playlist = await prisma.musicPlaylist.findFirst({ where: { id: playlistId, serverId }, select: { id: true } });
+      if (!playlist) return [];
+      const items = await prisma.musicPlaylistTrack.findMany({
+        where: { playlistId: playlist.id },
+        orderBy: { position: 'asc' },
+        include: { track: { select: { id: true, title: true, artist: true, duration: true, storageKey: true, artworkKey: true } } }
+      });
+      return items.map((item) => rowToPlayable(item.track));
+    },
+    recordPlay(trackId) {
+      // Fire-and-forget play counter; never blocks or fails playback.
+      void prisma.musicTrack.update({
+        where: { id: trackId },
+        data: { playCount: { increment: 1 }, lastPlayedAt: new Date() }
+      }).catch(() => undefined);
+    }
+  };
+
+  // ------------------------------------------------------------- engine
+
   const engine = liveKitConfigured
     ? new MusicEngine({
         io,
@@ -59,9 +170,39 @@ export function registerMusicSystem(deps: MusicSystemDeps): MusicSystem {
         isMusicEnabled: async (serverId) => {
           const server = await prisma.server.findUnique({ where: { id: serverId }, select: { musicEnabled: true } });
           return Boolean(server?.musicEnabled);
-        }
+        },
+        library: libraryResolver
       })
     : null;
+
+  // ------------------------------------------------------- library routes
+
+  registerMusicLibrary({
+    app,
+    prisma,
+    auth,
+    isMember: isMemberOfServer,
+    musicPermission: async (userId, serverId, action) => (action === 'upload' ? canUploadMusic(userId, serverId) : canManageLibrary(userId, serverId)),
+    broadcast: (serverId, event, payload) => io.to(`server:${serverId}`).emit(event, payload)
+  });
+
+  // Library status for the client (storage configured? limits? counts?).
+  app.get('/api/music/library/status', auth, async (req: AuthedRequest, res: Response, next: NextFunction) => {
+    try {
+      const serverId = String(req.query.server_id || '');
+      let trackCount = 0;
+      let usedBytes = 0;
+      if (serverId && await isMemberOfServer(req.userId!, serverId)) {
+        const [count, agg] = await Promise.all([
+          prisma.musicTrack.count({ where: { serverId } }),
+          prisma.musicTrack.aggregate({ where: { serverId }, _sum: { fileSize: true } })
+        ]);
+        trackCount = count;
+        usedBytes = Number(agg._sum?.fileSize || 0);
+      }
+      return res.json({ ...libraryLimits(), track_count: trackCount, used_bytes: usedBytes, playback_configured: Boolean(engine) });
+    } catch (error) { return next(error); }
+  });
 
   /** Shared authorization for every music command: voice channel + membership + toggle. */
   async function authorizeMusic(userId: string, channelId: string): Promise<{ ok: true; serverId: string } | { ok: false; status: number; error: string }> {
@@ -93,7 +234,7 @@ export function registerMusicSystem(deps: MusicSystemDeps): MusicSystem {
         switch (action) {
           case 'play': {
             const trimmed = (query || '').trim();
-            if (!trimmed && !trackId) return ack?.({ ok: false, error: 'Tell Mahyar Music what to play — a song name or a supported link.' });
+            if (!trimmed && !trackId) return ack?.({ ok: false, error: 'Tell Mahyar Music what to play — a track from your server library.' });
             const result = await engine.play({ channelId, serverId: allowed.serverId, userId, query: trimmed, trackRef: trackId || undefined });
             if (result.message === 'PICK_RESULT') {
               // Multiple candidates: the client opens the interactive picker.
@@ -112,16 +253,15 @@ export function registerMusicSystem(deps: MusicSystemDeps): MusicSystem {
               ok: result.ok,
               message: result.message,
               tracks: result.tracks.map((t) => ({
-                id: t.id, title: t.title, artist: t.artist, provider: t.provider,
-                artwork_url: t.artworkUrl || null, duration: t.duration,
-                page_url: t.pageUrl || null
+                id: t.id, track_id: t.trackId, title: t.title, artist: t.artist, origin: t.origin,
+                artwork_url: t.artworkUrl || null, duration: t.duration
               })),
               error: result.ok ? undefined : result.message
             });
           }
           case 'pause': { const r = engine.pause({ channelId, serverId: allowed.serverId, userId }); return ack?.({ ok: r.ok, message: r.message, state: r.state }); }
-          case 'resume': { const r = engine.resume({ channelId, serverId: allowed.serverId, userId }); return ack?.({ ok: r.ok, message: r.message, state: r.state }); }
-          case 'skip': { const r = engine.skip({ channelId, serverId: allowed.serverId, userId }); return ack?.({ ok: r.ok, message: r.message, state: r.state }); }
+          case 'resume': { const r = await engine.resume({ channelId, serverId: allowed.serverId, userId }); return ack?.({ ok: r.ok, message: r.message, state: r.state }); }
+          case 'skip': { const r = await engine.skip({ channelId, serverId: allowed.serverId, userId }); return ack?.({ ok: r.ok, message: r.message, state: r.state }); }
           case 'stop': { const r = engine.stop({ channelId, serverId: allowed.serverId, userId }); return ack?.({ ok: r.ok, message: r.message, state: r.state }); }
           case 'queue': { const r = engine.queue({ channelId, serverId: allowed.serverId, userId }); return ack?.({ ok: r.ok, message: r.message, state: r.state }); }
           case 'nowplaying': { const r = engine.nowPlaying({ channelId, serverId: allowed.serverId, userId }); return ack?.({ ok: r.ok, message: r.message, state: r.state }); }
@@ -143,16 +283,24 @@ export function registerMusicSystem(deps: MusicSystemDeps): MusicSystem {
       socket.join(`channel:${channelId}`);
       ack?.({ ok: true, state: engine ? engine.state(channelId) : null });
     });
+
+    // Queue an entire shared playlist into a voice channel from the library UI.
+    socket.on('music:play_playlist', async (payload: unknown, ack?: (result: unknown) => void) => {
+      const parsed = z.object({ channel_id: z.string().min(1).max(64), playlist_id: z.string().min(1).max(64) }).safeParse(payload);
+      if (!parsed.success) return ack?.({ ok: false, error: 'Invalid playlist play request' });
+      const allowed = await authorizeMusic(userId, parsed.data.channel_id);
+      if (!allowed.ok) return ack?.({ ok: false, error: allowed.error });
+      if (!engine) return ack?.({ ok: false, error: 'Mahyar Music is not configured on this server (LiveKit credentials required).' });
+      try {
+        const result = await engine.playPlaylist({ channelId: parsed.data.channel_id, serverId: allowed.serverId, userId, playlistId: parsed.data.playlist_id });
+        return ack?.({ ok: result.ok, message: result.message, state: result.state, error: result.ok ? undefined : result.message });
+      } catch (error) {
+        return ack?.({ ok: false, error: error instanceof Error ? error.message : 'The playlist could not be queued.' });
+      }
+    });
   });
 
   // ------------------------------------------------------------ REST reads
-
-  app.get('/api/music/providers', auth, async (_req: AuthedRequest, res: Response) => {
-    return res.json({
-      configured: Boolean(engine),
-      providers: providerStatuses()
-    });
-  });
 
   app.get('/api/music/state', auth, async (req: AuthedRequest, res: Response) => {
     const channelId = String(req.query.channel_id || '');

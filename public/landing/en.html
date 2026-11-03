@@ -50,18 +50,19 @@
   <!-- ================= Hero ================= -->
   <section class="hero" id="home">
     <div class="hero-glow"></div>
+    <div class="hero-amber-orb" aria-hidden="true"></div>
     <div class="container hero-inner">
       <div class="hero-copy">
-        <h1>Your Friends. Your Space.<br /><span class="grad">Your Connection.</span></h1>
+        <h1>Your Friends. Your Space.<br /><span class="grad">Your Connection.</span><br /><span class="grad-orange">Your Music.</span></h1>
         <p class="sub">Chat together, join voice rooms, share your screen, and enjoy music with your friends — all in one place. Built to stay light, fast and private.</p>
         <div class="hero-cta">
-          <a class="btn btn-primary" href="/app"><i class="fa-solid fa-rocket"></i> Get Started</a>
+          <a class="btn btn-accent" href="/app"><i class="fa-solid fa-rocket"></i> Get Started</a>
           <a class="btn btn-ghost" href="/app">Login</a>
         </div>
         <div class="hero-meta">
           <span><i class="fa-solid fa-bolt"></i> Real-time messaging</span>
           <span><i class="fa-solid fa-headphones"></i> LiveKit voice rooms</span>
-          <span><i class="fa-solid fa-music"></i> One shared music bot</span>
+          <span class="meta-music"><i class="fa-solid fa-music"></i> One shared music bot</span>
           <span><i class="fa-solid fa-feather"></i> Low resource usage</span>
         </div>
       </div>
@@ -125,7 +126,7 @@
           <p>Text channels and private messages with instant delivery, replies, reactions and fast in-channel search.</p>
           <span class="chip">Socket.IO</span>
         </article>
-        <article class="feature-card">
+        <article class="feature-card voice">
           <div class="feature-icon"><i class="fa-solid fa-headphones"></i></div>
           <h3>Voice Rooms</h3>
           <p>Jump into a voice channel with one click. Live, clear conversation powered by LiveKit — even on mobile data.</p>
@@ -137,7 +138,7 @@
           <p>Turn on your camera, share your screen with the room, and watch or review things together.</p>
           <span class="chip">WebRTC</span>
         </article>
-        <article class="feature-card">
+        <article class="feature-card community">
           <div class="feature-icon"><i class="fa-solid fa-user-group"></i></div>
           <h3>Private Communities</h3>
           <p>Create a server, organize channels, invite friends with links and manage roles and access.</p>
@@ -163,7 +164,8 @@
           <h3><span class="bot-dot"><i class="fa-solid fa-music"></i></span> Mahyar Music — the shared music bot</h3>
           <p>Like a real Discord music bot, Mahyar Music joins your voice room as its own participant and plays one shared audio source to everyone. Every listener keeps an independent personal volume.</p>
           <ul>
-            <li><i class="fa-solid fa-check"></i> <b>/mp play</b> with search results and an interactive picker</li>
+            <li><i class="fa-solid fa-check"></i> <b>Shared music library</b> — upload your own MP3/FLAC files and play them together</li>
+            <li><i class="fa-solid fa-check"></i> <b>/mp play</b> searches the library with an interactive picker</li>
             <li><i class="fa-solid fa-check"></i> Shared queue with pause, resume, skip and stop for everyone</li>
             <li><i class="fa-solid fa-check"></i> Personal 0–200% volume and personal mute — only for you</li>
             <li><i class="fa-solid fa-check"></i> A real bot identity in the voice participant list</li>
@@ -171,7 +173,7 @@
         </div>
         <div class="code-hint" aria-hidden="true">
           <div>/mp play <span class="k">believer</span></div>
-          <div>/mp play <span class="k">https://…/track-link</span></div>
+          <div>/mp play <span class="k">imagine dragons</span></div>
           <div>/mp queue</div>
           <div>/mp skip</div>
         </div>
@@ -222,7 +224,7 @@
         <h2>Build your own space</h2>
         <p>It takes a couple of minutes: create an account, invite your friends and play your first shared song.</p>
         <div class="hero-cta">
-          <a class="btn btn-primary" href="/app">Get Started — free</a>
+          <a class="btn btn-accent" href="/app">Get Started — free</a>
           <a class="btn btn-ghost" href="/app">Log in</a>
         </div>
       </div>

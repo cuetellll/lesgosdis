@@ -72,6 +72,7 @@ button { font: inherit; cursor: pointer; }
 .btn-ghost { color: var(--text); border-color: var(--line); background: rgba(255, 255, 255, 0.03); }
 .btn-ghost:hover { border-color: rgba(148, 163, 200, 0.4); background: rgba(255, 255, 255, 0.06); }
 .btn-accent { color: #1B1004; background-image: linear-gradient(120deg, #FFB25C, var(--orange)); box-shadow: 0 8px 24px rgba(255, 138, 61, 0.32); }
+.btn-accent:hover { box-shadow: 0 10px 30px rgba(255, 138, 61, 0.48); filter: brightness(1.04); }
 .btn-sm { padding: 8px 14px; font-size: 13px; border-radius: 10px; }
 .nav-burger { display: none; margin-inline-start: auto; background: none; border: 1px solid var(--line); color: var(--text); border-radius: 10px; width: 40px; height: 40px; font-size: 16px; }
 .mobile-menu { display: none; }
@@ -83,18 +84,35 @@ button { font: inherit; cursor: pointer; }
   background:
     radial-gradient(600px 300px at 18% 0%, rgba(124, 92, 255, 0.16), transparent 65%),
     radial-gradient(520px 280px at 85% 10%, rgba(34, 211, 238, 0.10), transparent 60%),
-    radial-gradient(420px 240px at 70% 85%, rgba(255, 138, 61, 0.05), transparent 60%);
+    radial-gradient(560px 320px at 72% 88%, rgba(255, 138, 61, 0.14), transparent 62%);
 }
+/* Floating amber light shape — transform/opacity only, reduced-motion respected. */
+.hero-amber-orb {
+  position: absolute; width: 380px; height: 380px; border-radius: 50%; pointer-events: none;
+  right: -90px; top: 8%; filter: blur(70px); opacity: 0.16;
+  background: radial-gradient(circle at 40% 40%, #FFB25C, #FF8A3D 55%, transparent 72%);
+  animation: amberFloat 13s ease-in-out infinite alternate;
+}
+.hero-amber-orb + .hero-amber-orb { display: none; }
+@keyframes amberFloat {
+  0% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.12; }
+  50% { opacity: 0.2; }
+  100% { transform: translate3d(-46px, 60px, 0) scale(1.12); opacity: 0.15; }
+}
+@media (prefers-reduced-motion: reduce) { .hero-amber-orb { animation: none; opacity: 0.12; } }
 .hero-inner { position: relative; display: grid; grid-template-columns: 1.02fr .98fr; gap: 48px; align-items: center; }
 .hero-copy h1 {
   font-size: clamp(34px, 4.6vw, 54px); line-height: 1.12; font-weight: 900; letter-spacing: -0.02em;
 }
 .hero-copy h1 .grad { background-image: linear-gradient(120deg, #a78bfa 10%, var(--cyan) 90%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hero-copy h1 .grad-orange { background-image: linear-gradient(120deg, #FFC46B 5%, #FF8A3D 60%, #FF6A2A 95%); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .hero-copy p.sub { margin-top: 18px; font-size: 17px; color: var(--muted); max-width: 46ch; }
 .hero-cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
 .hero-meta { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 26px; font-size: 12.5px; color: var(--muted); }
 .hero-meta span { display: inline-flex; align-items: center; gap: 7px; }
 .hero-meta i { color: var(--cyan); font-size: 11px; }
+.hero-meta .meta-music i { color: var(--orange); }
+.hero-meta .meta-music { color: #E8D9C8; }
 
 /* App preview mock (pure CSS, no images) */
 .app-preview {
@@ -130,7 +148,7 @@ button { font: inherit; cursor: pointer; }
   border: 1px solid rgba(124, 92, 255, 0.35); border-radius: 10px; padding: 7px 10px;
   background: linear-gradient(120deg, rgba(124, 92, 255, .16), rgba(34, 211, 238, .10));
 }
-.ap-musicbar .cover { width: 26px; height: 26px; border-radius: 7px; background-image: linear-gradient(135deg, var(--purple), var(--cyan)); display: grid; place-items: center; color: #fff; font-size: 10px; }
+.ap-musicbar .cover { width: 26px; height: 26px; border-radius: 7px; background-image: linear-gradient(135deg, var(--orange), var(--purple)); display: grid; place-items: center; color: #fff; font-size: 10px; }
 .ap-musicbar .t { font-size: 10px; color: #D9DEF0; font-weight: 700; }
 .ap-musicbar .a { font-size: 9px; color: #8B93A9; }
 .ap-musicbar .wave { margin-inline-start: auto; display: flex; align-items: flex-end; gap: 2px; height: 14px; }
@@ -162,6 +180,9 @@ button { font: inherit; cursor: pointer; }
 .feature-card h3 { font-size: 16.5px; font-weight: 800; }
 .feature-card p { margin-top: 9px; font-size: 13.5px; color: var(--muted); }
 .feature-card .chip { display: inline-flex; margin-top: 14px; font-size: 11px; font-weight: 700; color: #22D3EE; background: rgba(34, 211, 238, .1); border: 1px solid rgba(34, 211, 238, .25); padding: 3px 10px; border-radius: 999px; }
+.feature-card .chip.chip-amber { color: #FFB25C; background: rgba(255, 138, 61, .1); border-color: rgba(255, 138, 61, .3); }
+.feature-card.voice .feature-icon { background-image: linear-gradient(135deg, var(--cyan), #2DD4A7); box-shadow: 0 8px 20px rgba(34, 211, 238, 0.22); }
+.feature-card.community .feature-icon { background-image: linear-gradient(135deg, #B28CFF, var(--purple)); }
 
 /* Music spotlight */
 .music-spot {
@@ -193,7 +214,7 @@ button { font: inherit; cursor: pointer; }
 
 /* ------------------------------------------------------------------ CTA */
 .cta-band { position: relative; overflow: hidden; border: 1px solid rgba(124, 92, 255, 0.3); border-radius: 22px; padding: 52px 40px; text-align: center;
-  background: radial-gradient(500px 220px at 50% 0%, rgba(124, 92, 255, 0.16), transparent 70%), linear-gradient(180deg, #151727, #101219);
+  background: radial-gradient(500px 220px at 50% 0%, rgba(124, 92, 255, 0.16), transparent 70%), radial-gradient(420px 200px at 85% 100%, rgba(255, 138, 61, 0.12), transparent 65%), linear-gradient(180deg, #151727, #101219);
 }
 .cta-band h2 { font-size: clamp(22px, 3vw, 32px); font-weight: 900; letter-spacing: -0.015em; }
 .cta-band p { margin-top: 10px; color: var(--muted); }

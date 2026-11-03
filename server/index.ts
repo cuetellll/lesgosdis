@@ -39,6 +39,15 @@ const jwtSecret = secret || 'local-development-only-secret-change-before-deploy'
 // sessions alive without storing cookies or a server-side session table.
 const issueToken = (userId: string) => jwt.sign({}, jwtSecret, { subject: userId, expiresIn: '7d' });
 
+// Music uploads bypass the server entirely (browser → bucket presigned PUT), so the
+// storage endpoint's origin must be a legal connect target. https: origins are already
+// covered; http endpoints (local MinIO/s3rver in development) are added explicitly.
+const storageEndpointOrigin = (() => {
+  const raw = process.env.S3_ENDPOINT?.trim();
+  if (!raw) return null;
+  try { return new URL(raw).origin; } catch { return null; }
+})();
+
 app.use(helmet({ contentSecurityPolicy: { directives: {
   defaultSrc: ["'self'"],
   scriptSrc: ["'self'"],
@@ -47,7 +56,7 @@ app.use(helmet({ contentSecurityPolicy: { directives: {
   fontSrc: ["'self'", 'https://fonts.gstatic.com', 'https://cdn.jsdelivr.net', 'data:'],
   imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
   mediaSrc: ["'self'", 'blob:', 'https:'],
-  connectSrc: ["'self'", 'https:', 'wss:'],
+  connectSrc: ["'self'", 'https:', 'wss:', ...(storageEndpointOrigin ? [storageEndpointOrigin] : [])],
   objectSrc: ["'none'"], baseUri: ["'self'"], frameAncestors: ["'none'"]
 } } }));
 app.use(compression());
