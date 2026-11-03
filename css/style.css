@@ -465,11 +465,11 @@ kbd { font-family: 'JetBrains Mono', monospace; }
 .video-stage-grid.has-screen-share .featured-screen-share { min-height: min(54vh, 600px); box-shadow: 0 18px 46px rgba(0, 0, 0, 0.42); }
 .video-stage-grid.has-screen-share .video-tile:not(.screen-share-tile) { min-height: 112px; }
 
-.video-theater-stage:fullscreen {
-  width: 100vw; height: 100vh; padding: 24px; background: #06070b;
+.voice-theater-stage:fullscreen {
+  width: 100vw; height: 100vh; max-height: none !important; padding: 24px; background: #06070b; overflow-y: auto;
 }
-.video-theater-stage:fullscreen .video-stage-grid { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
-.video-theater-stage:fullscreen .video-stage-grid.has-screen-share .featured-screen-share { min-height: min(70vh, 820px); }
+.voice-theater-stage:fullscreen .video-stage-grid { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.voice-theater-stage:fullscreen .video-stage-grid.has-screen-share .featured-screen-share { min-height: min(70vh, 820px); }
 
 /* Person rows under a voice channel */
 .voice-member-row {

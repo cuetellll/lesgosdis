@@ -1606,7 +1606,47 @@ class MahyarGapApp {
     `;
   }
 
+  /** Snapshot of the composer (focus, caret, text, scroll) taken before the stage is rebuilt. */
+  captureComposerState() {
+    const input = document.getElementById('main-chat-input');
+    const viewport = document.getElementById('messages-scroll-viewport');
+    const state = {
+      focused: Boolean(input) && document.activeElement === input,
+      value: input ? input.value : null,
+      start: input ? input.selectionStart : 0,
+      end: input ? input.selectionEnd : 0,
+      scrollTop: viewport ? viewport.scrollTop : null,
+      nearBottom: viewport ? viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 80 : true,
+      key: this.activeContextKey()
+    };
+    return state;
+  }
+
+  /** Restores what captureComposerState saved, but only for the same conversation. */
+  restoreComposerState(snapshot) {
+    if (!snapshot) return;
+    const input = document.getElementById('main-chat-input');
+    if (input && snapshot.value !== null && snapshot.key === this.activeContextKey()) {
+      if (input.value !== snapshot.value) input.value = snapshot.value;
+      this.autoResizeComposer();
+      if (snapshot.focused) {
+        input.focus({ preventScroll: true });
+        try { input.setSelectionRange(snapshot.start, snapshot.end); } catch (_) { /* not selectable */ }
+      }
+    }
+    const viewport = document.getElementById('messages-scroll-viewport');
+    if (viewport && snapshot.scrollTop !== null && snapshot.key === this.activeContextKey()) {
+      viewport.scrollTop = snapshot.nearBottom ? viewport.scrollHeight : snapshot.scrollTop;
+    }
+  }
+
   renderMainStage() {
+    const snapshot = this.captureComposerState();
+    this.renderMainStageInner();
+    this.restoreComposerState(snapshot);
+  }
+
+  renderMainStageInner() {
     const stage = document.getElementById('main-stage-container');
     if (!stage) return;
     const callBanner = this.renderIncomingCallBanner();
@@ -1665,8 +1705,22 @@ class MahyarGapApp {
     html += this.renderChannelMessagesArea(ch, showVoiceTheater);
     html += `</div>`;
 
-    stage.innerHTML = html;
+    const fsStage = document.fullscreenElement && document.fullscreenElement.id === 'voice-theater-stage' ? document.fullscreenElement : null;
+    if (fsStage) {
+      // Replacing the fullscreen element would silently exit fullscreen, so swap only its
+      // contents (and the chat below it) and keep the live element, and its media, in place.
+      const tpl = document.createElement('div');
+      tpl.innerHTML = html;
+      const fresh = tpl.querySelector('#voice-theater-stage');
+      if (fresh) fsStage.replaceChildren(...fresh.childNodes);
+      const chatPane = stage.querySelector('#messages-scroll-viewport')?.closest('.flex-1.flex.overflow-hidden');
+      const freshChat = tpl.querySelector('#messages-scroll-viewport')?.closest('.flex-1.flex.overflow-hidden');
+      if (chatPane && freshChat) chatPane.replaceWith(freshChat);
+    } else {
+      stage.innerHTML = html;
+    }
     this.attachLiveVideoStreams();
+    this.syncFullscreenUi();
     this.autoResizeComposer();
     this.updateTypingIndicator();
   }
@@ -3590,11 +3644,32 @@ class MahyarGapApp {
     document.querySelectorAll('[data-remote-identity][data-remote-source]').forEach((video) => this.rtc.attachRemoteVideo(video.dataset.remoteIdentity, video, video.dataset.remoteSource));
   }
 
+  /** Toggles fullscreen on the single voice stage; state is driven by `fullscreenchange`. */
   requestFullscreenStage() {
-    const stage = document.getElementById('voice-theater-stage') || document.getElementById('webrtc-stage-grid');
-    if (stage && stage.requestFullscreen) {
-      stage.requestFullscreen().catch(() => {});
+    const stage = document.getElementById('voice-theater-stage');
+    if (!stage || !document.fullscreenEnabled) {
+      this.showToast('Fullscreen is not available in this browser.', 'error');
+      return;
     }
+    if (this.fullscreenPending) return;
+    this.fullscreenPending = true;
+    const op = document.fullscreenElement
+      ? document.exitFullscreen()
+      : stage.requestFullscreen();
+    Promise.resolve(op)
+      .catch(() => this.showToast('The browser blocked fullscreen. Try again.', 'error'))
+      .finally(() => { this.fullscreenPending = false; });
+  }
+
+  syncFullscreenUi() {
+    const active = Boolean(document.fullscreenElement);
+    document.querySelectorAll('[data-action="requestFullscreenStage"]').forEach((btn) => {
+      const icon = btn.querySelector('i.fa-solid');
+      if (icon) icon.className = `fa-solid ${active ? 'fa-compress' : 'fa-expand'}${icon.className.includes('mr-1') ? ' mr-1' : ''}`;
+      btn.title = active ? 'Exit full screen' : 'Full screen';
+      btn.setAttribute('aria-label', btn.title);
+    });
+    document.documentElement.classList.toggle('stage-fullscreen', active);
   }
 
   // =========================================================================
@@ -4578,6 +4653,10 @@ class MahyarGapApp {
   }
 
   bindGlobalEvents() {
+    document.addEventListener('fullscreenchange', () => {
+      this.syncFullscreenUi();
+      this.attachLiveVideoStreams();
+    });
     if (this.globalEventsBound) return;
     this.globalEventsBound = true;
     document.addEventListener('click', (event) => this.handleDelegatedClick(event));
